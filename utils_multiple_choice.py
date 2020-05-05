@@ -440,6 +440,7 @@ def convert_examples_to_features(
     label_map = {label: i for i, label in enumerate(label_list)}
 
     features = []
+    max_crop = 0
     for (ex_index, example) in tqdm.tqdm(enumerate(examples), desc="convert examples to features"):
         if ex_index % 10000 == 0:
             logger.info("Writing example %d of %d" % (ex_index, len(examples)))
@@ -461,8 +462,10 @@ def convert_examples_to_features(
                 logger.info(
                     "Attention! you are cropping tokens (swag task is ok). "
                     "If you are training ARC and RACE and you are poping question + options,"
-                    "you need to try to use a bigger max seq length!"
+                    "you need to try to use a bigger max seq length! ({}/{})".format(inputs["num_truncated_tokens"], max_length)
                 )
+                if inputs["num_truncated_tokens"] > max_crop:
+                    max_crop = inputs["num_truncated_tokens"]
 
             input_ids, token_type_ids = inputs["input_ids"], inputs["token_type_ids"]
 
@@ -500,7 +503,7 @@ def convert_examples_to_features(
 
         features.append(InputFeatures(example_id=example.example_id, choices_features=choices_features, label=label,))
 
-    return features
+    return features, max_crop
 
 
 processors = {

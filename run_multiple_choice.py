@@ -580,7 +580,7 @@ def load_and_cache_examples(args, task, tokenizer, evaluate=False, test=False):
         else:
             examples = processor.get_train_examples(full_data_dir)
         logger.info("Training number: %s", str(len(examples)))
-        features = convert_examples_to_features(
+        features, max_crop = convert_examples_to_features(
             examples,
             label_list,
             args.max_seq_length,
@@ -590,6 +590,7 @@ def load_and_cache_examples(args, task, tokenizer, evaluate=False, test=False):
         )
         if args.local_rank in [-1, 0]:
             logger.info("Saving features into cached file %s", cached_features_file)
+            logger.info("Maximum nof truncated tokens: %d", max_crop)
             torch.save(features, cached_features_file)
 
     if args.local_rank == 0:
