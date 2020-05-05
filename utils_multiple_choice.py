@@ -376,6 +376,7 @@ class EntranceExamsProcessor(DataProcessor):
 
 
 class GenericProcessor(DataProcessor):
+
     def _read_examples(self, data_dir, set_type):
         """See base class."""
         logger.info("LOOKING AT {}".format(data_dir))
@@ -396,6 +397,30 @@ class GenericProcessor(DataProcessor):
         """See base class."""
         return ["0", "1", "2", "3"]
 
+    def _encode_generic_id(self, str_id):
+        id = ''
+        # ascii representation of an alphabet char is always a number
+        # of two/three ciphers.
+        for char in str_id:
+            int_char = ord(char)
+            # ensure 3 chars representation for each character
+            str_int_char = str(int_char) if int_char > 99 else ('0' + str(int_char))
+            id = '{}{}'.format(id, str_int_char)
+        return int(id)
+
+    def _decode_generic_id(self, int_id):
+        id = ''
+        str_int_id = str(int_id)
+        # ascii representation of an alphabet char is always a number
+        # of two/three ciphers, stick to three digits
+        if len(str_int_id) % 3 != 0:
+            str_int_id = '0' + str_int_id
+
+        for idx in range(0, len(str_int_id), 3):
+            char = chr(int(str_int_id[idx:idx+3]))
+            id = '{}{}'.format(id, str(char))
+        return id
+
     def _read_json(self, input_file):
         with open(input_file, "r", encoding="utf-8") as fin:
             data_raw = json.load(fin)
@@ -406,6 +431,9 @@ class GenericProcessor(DataProcessor):
         examples = []
         for data_raw in data['data']:
             article = data_raw['article']
+            # encode by default. When input_batching with ids, no string tensor is
+            # allowed, ensure that example ids are always numeric.
+            example_id = self._encode_generic_id(data_raw['id'])
             for i in range(len(data_raw["answers"])):
                 truth = str(ord(data_raw["answers"][i]) - ord("A"))
                 question = data_raw["questions"][i]
@@ -413,7 +441,7 @@ class GenericProcessor(DataProcessor):
 
                 examples.append(
                     InputExample(
-                        example_id=data_raw['id'],
+                        example_id=example_id,
                         question=question,
                         contexts=[article, article, article, article],  # this is not efficient but convenient
                         endings=[options[0], options[1], options[2], options[3]],
@@ -515,4 +543,4 @@ processors = {
 }
 
 
-MULTIPLE_CHOICE_TASKS_NUM_LABELS = {"race", 4, "swag", 4, "arc", 4}
+MULTIPLE_CHOICE_TASKS_NUM_LABELS = {"race", 4, "swag", 4, "arc", 4, "ee", 4, "generic", 4}

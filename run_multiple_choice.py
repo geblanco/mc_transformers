@@ -494,16 +494,19 @@ def evaluate(args, model, tokenizer, prefix="", test=False, train=True):
                 preds = np.append(preds, np_logits, axis=0)
                 out_label_ids = np.append(out_label_ids, np_label, axis=0)
 
-            # up to batch size or remaining examples
-            for batch_index in range(len(batch[0])):
-                # convert everything to python types to ensure json serializability
-                id = int(batch[4][batch_index].detach().cpu().numpy())
-                label = int(np_label[batch_index])
-                pred_label = int(np.argmax(np_logits[batch_index], axis=0))
-                logs = list([d.item() for d in np_logits[batch_index]])
-                probs = compute_softmax(list(logs))
-                raw_result = dict(id=id, label=label, pred_label=pred_label, logits=logs, probs=probs)
-                raw_results.append(raw_result)
+            if not train:
+                # we only save results on test and eval, never on train
+                # (also, train does not have batch[4], which is the example id)
+                # up to batch size or remaining examples
+                for batch_index in range(len(batch[0])):
+                    # convert everything to python types to ensure json serializability
+                    id = int(batch[4][batch_index].detach().cpu().numpy())
+                    label = int(np_label[batch_index])
+                    pred_label = int(np.argmax(np_logits[batch_index], axis=0))
+                    logs = list([d.item() for d in np_logits[batch_index]])
+                    probs = compute_softmax(list(logs))
+                    raw_result = dict(id=id, label=label, pred_label=pred_label, logits=logs, probs=probs)
+                    raw_results.append(raw_result)
 
         eval_loss = eval_loss / nb_eval_steps
         preds = np.argmax(preds, axis=1)
@@ -601,9 +604,13 @@ def load_and_cache_examples(args, task, tokenizer, evaluate=False, test=False):
     all_input_mask = torch.tensor(select_field(features, "input_mask"), dtype=torch.long)
     all_segment_ids = torch.tensor(select_field(features, "segment_ids"), dtype=torch.long)
     all_label_ids = torch.tensor([f.label for f in features], dtype=torch.long)
-    all_ids = torch.tensor([int(f.example_id) for f in features])
 
-    dataset = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids, all_ids)
+    if evaluate or test:
+        # only load ids on dataset when not training, useless data for training.
+        all_ids = torch.tensor([int(f.example_id) for f in features])
+        dataset = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids, all_ids)
+    else:
+        dataset = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids)
     return dataset
 
 
