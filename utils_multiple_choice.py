@@ -481,10 +481,12 @@ def convert_examples_to_features(
             else:
                 text_b = example.question + " " + ending
 
+            # truncate only from context, never from question/ending
             inputs = tokenizer.encode_plus(
                 text_a, text_b,
                 add_special_tokens=True,
                 max_length=max_length,
+                truncation_strategy='only_first',
                 return_overflowing_tokens=True)
             if "num_truncated_tokens" in inputs and inputs["num_truncated_tokens"] > 0:
                 logger.info(
