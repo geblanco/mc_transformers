@@ -125,7 +125,21 @@ def parse_args():
         default=None,
         type=str,
         required=True,
-        help="The output directory where the model predictions and checkpoints will be written.",
+        help="The output directory where the model data and checkpoints will be written.",
+    )
+    parser.add_argument(
+        "--output_metrics_dir",
+        default=None,
+        type=str,
+        required=False,
+        help="The output directory to store predictions and metrics from the model (eval/test) modes.",
+    )
+    parser.add_argument(
+        "--output_results_dir",
+        default=None,
+        type=str,
+        required=False,
+        help="The output directory to store predictions from the model (eval/test) modes.",
     )
 
     # Other parameters
@@ -514,35 +528,55 @@ def evaluate(args, model, tokenizer, prefix="", test=False, train=True):
         result = {"eval_acc": acc, "eval_loss": eval_loss}
         results.update(result)
 
-        nbest_name = (("_" + str(prefix) + "_") if prefix != "" else "") + \
-          "_eval_nbest_predictions.json"
-        output_eval_file = os.path.join(eval_output_dir, "is_test_" + str(test).lower() + "_eval_results.txt")
-        output_preds_file = os.path.join(eval_output_dir, "is_test_" +
-            str(test).lower() + nbest_name)
+        """
+        Save results
+        """
+        if train:
+            output_file_prefix = "train"
+        elif not test:
+            output_file_prefix = "dev"
+        else:
+            output_file_prefix = "test"
 
-        with open(output_eval_file, "w") as writer:
-            logger.info("***** Eval results {} *****".format(str(prefix) + " is test:" + str(test)))
-            writer.write("model           =%s\n" % str(args.model_name_or_path))
-            writer.write(
-                "total batch size=%d\n"
-                % (
-                    args.per_gpu_eval_batch_size
-                    * args.gradient_accumulation_steps
+        fixed_prefix=str(prefix) + "_" if prefix != "" else ""
+
+        # save accuracy to metrics dir
+        if not os.path.exists(args.output_metrics_dir) and args.local_rank in [-1, 0]:
+            os.makedirs(args.output_metrics_dir)
+
+        output_metrics_name = fixed_prefix + output_file_prefix + "_metrics.json"
+        output_metrics_path = os.path.join(args.output_metrics_dir, output_metrics_name)
+
+        metric_bs = args.per_gpu_eval_batch_size \
+                    * args.gradient_accumulation_steps \
                     * (torch.distributed.get_world_size() if args.local_rank != -1 else 1)
-                )
-            )
-            writer.write("train num epochs=%d\n" % args.num_train_epochs)
-            writer.write("fp16            =%s\n" % args.fp16)
-            writer.write("max seq length  =%d\n" % args.max_seq_length)
-            for key in sorted(result.keys()):
-                logger.info("  %s = %s", key, str(result[key]))
-                writer.write("%s = %s\n" % (key, str(result[key])))
+
+        metrics = dict(
+            batch_size=metric_bs,
+            num_train_epochs=args.num_train_epochs,
+            fp16=args.fp16,
+            max_seq_length=args.max_seq_length,
+        )
+        logger.info("***** Eval results {} *****".format(str(prefix) + " is test:" + str(test)))
+        for key in sorted(result.keys()):
+            logger.info("  %s = %s", key, str(result[key]))
+            metrics[key] = result[key]
+
+        with open(output_metrics_path, "w") as writer:
+            writer.write(json.dumps(metrics) + '\n')
 
         if not train:
-          # evaluate is called multiple times during training
-          # only save predictions on eval and test
-          with open(output_preds_file, "w") as writer:
-              json.dump(fp=writer, obj=raw_results)
+            # save predictions to results dir
+            if not os.path.exists(args.output_results_dir) and args.local_rank in [-1, 0]:
+                os.makedirs(args.output_results_dir)
+
+            output_preds_name = fixed_prefix + output_file_prefix + "_predictions.json"
+            output_preds_path = os.path.join(args.output_results_dir, output_results_name)
+
+            # evaluate is called multiple times during training
+            # only save predictions on eval and test
+            with open(output_preds_file, "w") as writer:
+                writer.write(json.dumps(raw_results) + '\n')
 
     return results
 
@@ -627,6 +661,8 @@ def main(args):
             )
         )
 
+    import sys
+    sys.exit(1)
     # Setup distant debugging if needed
     if args.server_ip and args.server_port:
         # Distant debugging - see https://code.visualstudio.com/docs/python/debugging#_attach-to-a-local-script
