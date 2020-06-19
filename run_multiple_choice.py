@@ -661,8 +661,6 @@ def main(args):
             )
         )
 
-    import sys
-    sys.exit(1)
     # Setup distant debugging if needed
     if args.server_ip and args.server_port:
         # Distant debugging - see https://code.visualstudio.com/docs/python/debugging#_attach-to-a-local-script
