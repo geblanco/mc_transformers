@@ -42,9 +42,6 @@ from transformers import (
     XLNetConfig,
     XLNetForMultipleChoice,
     XLNetTokenizer,
-    AlbertConfig,
-    AlbertTokenizer,
-    AlbertForMultipleChoice,
     get_linear_schedule_with_warmup,
 )
 from utils_multiple_choice import convert_examples_to_features, processors
@@ -69,14 +66,13 @@ for gpu in gpus:
 logger = logging.getLogger(__name__)
 
 ALL_MODELS = sum(
-    (tuple(conf.pretrained_config_archive_map.keys()) for conf in (BertConfig, XLNetConfig, RobertaConfig, AlbertConfig)), ()
+    (tuple(conf.pretrained_config_archive_map.keys()) for conf in (BertConfig, XLNetConfig, RobertaConfig)), ()
 )
 
 MODEL_CLASSES = {
     "bert": (BertConfig, BertForMultipleChoice, BertTokenizer),
     "xlnet": (XLNetConfig, XLNetForMultipleChoice, XLNetTokenizer),
     "roberta": (RobertaConfig, RobertaForMultipleChoice, RobertaTokenizer),
-    "albert": (AlbertConfig, AlbertForMultipleChoice, AlbertTokenizer),
 }
 
 
