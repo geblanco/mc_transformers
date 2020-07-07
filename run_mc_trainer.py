@@ -16,10 +16,12 @@
 """ Finetuning the library models for multiple choice (Bert, Roberta, XLNet)."""
 
 
-import logging
 import os
+import logging
+
+
 from dataclasses import dataclass, field
-from typing import Dict, Optional
+from typing import Dict, Optional, NamedTuple
 
 import numpy as np
 
@@ -37,10 +39,29 @@ from utils_multiple_choice import MultipleChoiceDataset, Split, processors
 
 
 logger = logging.getLogger(__name__)
-
+os.environ.set('WANDB_DISABLED', True)
 
 def simple_accuracy(preds, labels):
     return (preds == labels).mean()
+
+
+def softmax(preds, axis=None):
+    # Taken from: https://nolanbconaway.github.io/blog/2017/softmax-numpy.html
+    if axis is None:
+        raise ValueError("Softmax function needs an axis to work!")
+    # make preds at least 2d
+    y = np.atleast_2d(preds)
+    # subtract the max for numerical stability
+    y = y - np.expand_dims(np.max(y, axis = axis), axis)
+    y = np.exp(y)
+    # take the sum along the specified axis
+    ax_sum = np.expand_dims(np.sum(y, axis = axis), axis)
+    p = y / ax_sum
+    # flatten if preds was 1D
+    if len(preds.shape) == 1:
+        p = p.flatten()
+
+    return p
 
 
 @dataclass
@@ -83,13 +104,79 @@ class DataTrainingArguments:
     )
 
 
+@dataclass
+class DirArguments:
+    """
+    Arguments pertaining to output directories for metrics, results and predictions
+    """
+    metrics_dir: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "Output directory for metrics (loss/accuracy)"
+        }
+    )
+    results_dir: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "Output directory for predictions"
+        }
+    )
+
+
+def save_results(results, dir_args, prefix="eval"):
+
+    output_metrics_file = os.path.join(
+        dir_args.metrics_dir,
+        f"{prefix}_metrics.json"
+    )
+    output_predictions_file = os.path.join(
+        dir_args.results_dir,
+        f"{prefix}_predictions.json"
+    )
+    output_nbest_file = os.path.join(
+        dir_args.results_dir,
+        f"{prefix}_nbest_predictions.json"
+    )
+    metrics = {}
+    for key in ["eval_loss", "eval_acc"]:
+        if results.get(key) is not None:
+            metrics[key] = results.get(key)
+    if len(metrics.keys()) == 0:
+        logger.info("Neither loss or accuracy found on result dict!")
+    else:
+        with open(output_metrics_file, "w") as writer:
+            writer.write(json.dumps(metrics) + '\n')
+        for key, value in metrics.items():
+            logger.info("  %s = %s", key, value)
+            writer.write("%s = %s\n" % (key, value))
+
+    if results.get("eval_preds") is None or results.get("eval_label_ids") is None:
+        logger.info("Eval predictions not found on result dict!")
+        return
+
+    all_predictions = softmax(results.get("eval_preds"), axis=1)
+    label_ids = results.get("eval_label_ids")
+    predictions_list = list(zip(label_ids, all_predictions.tolist()))
+    with open(output_nbest_file, "w") as writer:
+        writer.write(json.dumps(predictions_list) + '\n')
+
+    predictions = np.max(all_predictions, axis=1)
+    predictions_list = list(zip(label_ids, predictions.tolist()))
+    with open(output_predictions_file, "w") as writer:
+        writer.write(json.dumps(predictions_list) + '\n')
+
+
 def main():
     # See all possible arguments in src/transformers/training_args.py
     # or by passing the --help flag to this script.
     # We now keep distinct sets of args, for a cleaner separation of concerns.
-
-    parser = HfArgumentParser((ModelArguments, DataTrainingArguments, TrainingArguments))
-    model_args, data_args, training_args = parser.parse_args_into_dataclasses()
+    parser = HfArgumentParser((
+        ModelArguments, DataTrainingArguments,
+        DirArguments, TrainingArguments
+    ))
+    model_args, data_args, dir_args, training_args = (
+        parser.parse_args_into_dataclasses()
+    )
 
     if (
         os.path.exists(training_args.output_dir)
@@ -178,7 +265,10 @@ def main():
 
     def compute_metrics(p: EvalPrediction) -> Dict:
         preds = np.argmax(p.predictions, axis=1)
-        return {"acc": simple_accuracy(preds, p.label_ids)}
+        return {
+            "acc": simple_accuracy(preds, p.label_ids),
+            "preds": (p.predictions, p.label_ids)
+        }
 
     # Initialize our Trainer
     trainer = Trainer(
@@ -192,7 +282,11 @@ def main():
     # Training
     if training_args.do_train:
         trainer.train(
-            model_path=model_args.model_name_or_path if os.path.isdir(model_args.model_name_or_path) else None
+            model_path=(
+                model_args.model_name_or_path
+                if os.path.isdir(model_args.model_name_or_path)
+                else None
+            )
         )
         trainer.save_model()
         # For convenience, we also re-save the tokenizer to the same directory,
@@ -200,24 +294,17 @@ def main():
         if trainer.is_world_master():
             tokenizer.save_pretrained(training_args.output_dir)
 
-    # Evaluation
-    results = {}
     if training_args.do_eval:
-        logger.info("*** Evaluate ***")
-
-        result = trainer.evaluate()
-
-        output_eval_file = os.path.join(training_args.output_dir, "eval_results.txt")
+        logger.info(f"*** Evaluate ***")
+        results = trainer.evaluate()
         if trainer.is_world_master():
-            with open(output_eval_file, "w") as writer:
-                logger.info("***** Eval results *****")
-                for key, value in result.items():
-                    logger.info("  %s = %s", key, value)
-                    writer.write("%s = %s\n" % (key, value))
+            save_results(results, dir_args, prefix="eval")
 
-                results.update(result)
-
-    return results
+    if training_args.do_test:
+        logger.info(f"*** Test ***")
+        results = trainer.predict()
+        if trainer.is_world_master():
+            save_results(results, dir_args, prefix="test")
 
 
 def _mp_fn(index):
