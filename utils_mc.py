@@ -16,6 +16,7 @@
 """ Multiple choice fine-tuning: utilities to work with multiple choice tasks of reading comprehension """
 
 
+import re
 import csv
 import glob
 import json
@@ -23,7 +24,7 @@ import logging
 import os
 from dataclasses import dataclass
 from enum import Enum
-from typing import List, Optional
+from typing import List, Optional, Union
 
 import tqdm
 from filelock import FileLock
@@ -48,7 +49,7 @@ class InputExample:
         specified for train and dev examples, but not for test examples.
     """
 
-    example_id: str
+    example_id: Union[str, int]
     question: str
     contexts: List[str]
     endings: List[str]
@@ -62,7 +63,7 @@ class InputFeatures:
     Property names are the same names as the corresponding inputs to a model.
     """
 
-    example_id: str
+    example_id: Union[str, int]
     input_ids: List[List[int]]
     attention_mask: Optional[List[List[int]]]
     token_type_ids: Optional[List[List[int]]]
@@ -173,7 +174,7 @@ if is_tf_available():
 
                     yield (
                         {
-                            "example_id": 0,
+                            "example_id": ex.example_id,
                             "input_ids": ex.input_ids,
                             "attention_mask": ex.attention_mask,
                             "token_type_ids": ex.token_type_ids,
@@ -235,6 +236,12 @@ class DataProcessor:
 
 class RaceProcessor(DataProcessor):
     """Processor for the RACE data set."""
+    reg = re.compile(r'^.*/RACE/(.*)\.txt$')
+    replacements = [
+        ('train', '01'), ('dev', '02'), ('test', '03'),
+        ('high', '04'), ('middle', '05'),
+        ('/', '00')
+    ]
 
     def get_train_examples(self, data_dir):
         """See base class."""
@@ -267,6 +274,27 @@ class RaceProcessor(DataProcessor):
         """See base class."""
         return ["0", "1", "2", "3"]
 
+    def _encode_id(self, race_id):
+        """
+          train/dev/test := 01, 02, 03
+          high/middle    := 04, 02
+          <int>.txt      := int
+          /              := 00
+        """
+        race_id = self.reg.findall(race_id)[0]
+        for repl in self.replacements:
+            race_id = race_id.replace(repl[0], repl[1])
+        return int(race_id)
+
+    def _decode_id(self, race_id):
+        # 0 stripped from the beggining in numbers
+        race_id = '0' + str(race_id)
+        id = race_id[8:] + '.txt'
+        race_id = race_id[:8]
+        for repl in self.replacements:
+            race_id = race_id.replace(repl[1], repl[0])
+        return race_id + id
+
     def _read_txt(self, input_dir):
         lines = []
         files = glob.glob(input_dir + "/*txt")
@@ -281,7 +309,7 @@ class RaceProcessor(DataProcessor):
         """Creates examples for the training and dev sets."""
         examples = []
         for (_, data_raw) in enumerate(lines):
-            race_id = "%s-%s" % (set_type, data_raw["race_id"])
+            race_id = self._encode_id(data_raw['race_id'])
             article = data_raw["article"]
             for i in range(len(data_raw["answers"])):
                 truth = str(ord(data_raw["answers"][i]) - ord("A"))

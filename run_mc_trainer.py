@@ -21,7 +21,7 @@ import logging
 
 
 from dataclasses import dataclass, field
-from typing import Dict, Optional, NamedTuple
+from typing import Dict, Optional
 
 import numpy as np
 
@@ -263,12 +263,22 @@ def main():
         else None
     )
 
+    test_dataset = (
+        MultipleChoiceDataset(
+            data_dir=data_args.data_dir,
+            tokenizer=tokenizer,
+            task=data_args.task_name,
+            max_seq_length=data_args.max_seq_length,
+            overwrite_cache=data_args.overwrite_cache,
+            mode=Split.test,
+        )
+        if training_args.do_test
+        else None
+    )
+
     def compute_metrics(p: EvalPrediction) -> Dict:
         preds = np.argmax(p.predictions, axis=1)
-        return {
-            "acc": simple_accuracy(preds, p.label_ids),
-            "preds": (p.predictions, p.label_ids)
-        }
+        return {"acc": simple_accuracy(preds, p.label_ids)}
 
     # Initialize our Trainer
     trainer = Trainer(
@@ -294,17 +304,22 @@ def main():
         if trainer.is_world_master():
             tokenizer.save_pretrained(training_args.output_dir)
 
+    results = {}
     if training_args.do_eval:
         logger.info(f"*** Evaluate ***")
-        results = trainer.evaluate()
+        result = trainer.predict(eval_dataset)
         if trainer.is_world_master():
-            save_results(results, dir_args, prefix="eval")
+            save_results(result, dir_args, prefix="eval")
+            results['eval'] = result
 
     if training_args.do_test:
         logger.info(f"*** Test ***")
-        results = trainer.predict()
+        result = trainer.predict(test_dataset)
         if trainer.is_world_master():
-            save_results(results, dir_args, prefix="test")
+            save_results(result, dir_args, prefix="test")
+            results['test'] = result
+
+    return results
 
 
 def _mp_fn(index):
