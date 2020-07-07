@@ -62,6 +62,7 @@ class InputFeatures(object):
         ]
         self.label = label
 
+
 class DataProcessor(object):
     """Base class for data converters for multiple choice data sets."""
 
@@ -86,7 +87,7 @@ class RaceProcessor(DataProcessor):
     """Processor for the RACE data set."""
     def __init__(self):
         super(RaceProcessor, self).__init__()
-        self.reg = re.compile('^.*/RACE/(.*)\.txt$')
+        self.reg = re.compile(r'^.*/RACE/(.*)\.txt$')
         self.replacements = [
             ('train', '01'), ('dev', '02'), ('test', '03'),
             ('high', '04'), ('middle', '05'),
@@ -97,7 +98,7 @@ class RaceProcessor(DataProcessor):
         logger.info("LOOKING AT {} train".format(data_dir))
         data = []
         for path in self._get_paths_from_data_dir("train", data_dir):
-          data.extend(self._read_txt(path))
+            data.extend(self._read_txt(path))
         return self._create_examples(data, "train")
 
     def get_dev_examples(self, data_dir):
@@ -105,7 +106,7 @@ class RaceProcessor(DataProcessor):
         logger.info("LOOKING AT {} dev".format(data_dir))
         data = []
         for path in self._get_paths_from_data_dir("dev", data_dir):
-          data.extend(self._read_txt(path))
+            data.extend(self._read_txt(path))
         return self._create_examples(data, "dev")
 
     def get_test_examples(self, data_dir):
@@ -113,7 +114,7 @@ class RaceProcessor(DataProcessor):
         logger.info("LOOKING AT {} test".format(data_dir))
         data = []
         for path in self._get_paths_from_data_dir("test", data_dir):
-          data.extend(self._read_txt(path))
+            data.extend(self._read_txt(path))
         return self._create_examples(data, "test")
 
     def get_labels(self):
@@ -133,6 +134,7 @@ class RaceProcessor(DataProcessor):
         return int(race_id)
 
     def _decode_race_id(self, race_id):
+        # 0 stripped from the beggining in numbers
         race_id = '0' + str(race_id)
         id = race_id[8:] + '.txt'
         race_id = race_id[:8]
@@ -146,8 +148,8 @@ class RaceProcessor(DataProcessor):
             paths.append(os.path.join(data_dir, prefix, 'high'))
             paths.append(os.path.join(data_dir, prefix, 'middle'))
         else:
-          # e.g.: data_dir = RACE/test/high
-          paths = [data_dir]
+            # e.g.: data_dir = RACE/test/high
+            paths = [data_dir]
         return paths
 
     def _read_txt(self, input_dir):
