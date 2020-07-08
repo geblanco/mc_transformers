@@ -35,11 +35,17 @@ from transformers import (
     TrainingArguments,
     set_seed,
 )
-from utils_multiple_choice import MultipleChoiceDataset, Split, processors
-
+from utils_mc import MultipleChoiceDataset, Split, processors
+ 
+# Force no unnecessary allocation
+import tensorflow as tf
+gpus = tf.config.experimental.list_physical_devices('GPU')
+for gpu in gpus:
+    tf.config.experimental.set_memory_growth(gpu, True)
+ 
 
 logger = logging.getLogger(__name__)
-os.environ.set('WANDB_DISABLED', True)
+os.environ.update(**{"WANDB_DISABLED": "true"})
 
 def simple_accuracy(preds, labels):
     return (preds == labels).mean()
@@ -272,7 +278,7 @@ def main():
             overwrite_cache=data_args.overwrite_cache,
             mode=Split.test,
         )
-        if training_args.do_test
+        if training_args.do_predict
         else None
     )
 
@@ -312,7 +318,7 @@ def main():
             save_results(result, dir_args, prefix="eval")
             results['eval'] = result
 
-    if training_args.do_test:
+    if training_args.do_predict:
         logger.info(f"*** Test ***")
         result = trainer.predict(test_dataset)
         if trainer.is_world_master():
