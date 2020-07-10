@@ -516,6 +516,82 @@ class ArcProcessor(DataProcessor):
         return examples
 
 
+class GenericProcessor(DataProcessor):
+
+    def _read_examples(self, data_dir, set_type):
+        """See base class."""
+        logger.info("LOOKING AT {}".format(data_dir))
+        data = self._read_json(data_dir)
+        return self._create_examples(data, "train")
+
+    """Processor for the Generic data sets."""
+    def get_train_examples(self, data_dir):
+        return self._read_examples(data_dir, "train")
+
+    def get_dev_examples(self, data_dir):
+        return self._read_examples(data_dir, "dev")
+
+    def get_test_examples(self, data_dir):
+        return self._read_examples(data_dir, "test")
+
+    def get_labels(self):
+        """See base class."""
+        return ["0", "1", "2", "3"]
+
+    def _encode_generic_id(self, str_id):
+        id = ''
+        # ascii representation of an alphabet char is always a number
+        # of two/three ciphers.
+        for char in str_id:
+            int_char = ord(char)
+            # ensure 3 chars representation for each character
+            str_int_char = str(int_char) if int_char > 99 else ('0' + str(int_char))
+            id = '{}{}'.format(id, str_int_char)
+        return int(id)
+
+    def _decode_generic_id(self, int_id):
+        id = ''
+        str_int_id = str(int_id)
+        # ascii representation of an alphabet char is always a number
+        # of two/three ciphers, stick to three digits
+        if len(str_int_id) % 3 != 0:
+            str_int_id = '0' + str_int_id
+
+        for idx in range(0, len(str_int_id), 3):
+            char = chr(int(str_int_id[idx:idx+3]))
+            id = '{}{}'.format(id, str(char))
+        return id
+
+    def _read_json(self, input_file):
+        with open(input_file, "r", encoding="utf-8") as fin:
+            data_raw = json.load(fin)
+        return data_raw
+
+    def _create_examples(self, data, set_type):
+        """Creates examples for the training and dev sets."""
+        examples = []
+        for data_raw in data['data']:
+            article = data_raw['article']
+            # encode by default. When input_batching with ids, no string tensor is
+            # allowed, ensure that example ids are always numeric.
+            example_id = self._encode_generic_id(data_raw['id'])
+            for i in range(len(data_raw["answers"])):
+                truth = str(ord(data_raw["answers"][i]) - ord("A"))
+                question = data_raw["questions"][i]
+                options = data_raw["options"][i]
+
+                examples.append(
+                    InputExample(
+                        example_id=example_id,
+                        question=question,
+                        contexts=[article, article, article, article],  # this is not efficient but convenient
+                        endings=[options[0], options[1], options[2], options[3]],
+                        label=truth,
+                    )
+                )
+        return examples
+
+
 def convert_examples_to_features(
     examples: List[InputExample], label_list: List[str], max_length: int, tokenizer: PreTrainedTokenizer,
 ) -> List[InputFeatures]:
@@ -583,5 +659,11 @@ def convert_examples_to_features(
     return features
 
 
-processors = {"race": RaceProcessor, "swag": SwagProcessor, "arc": ArcProcessor, "syn": SynonymProcessor}
-MULTIPLE_CHOICE_TASKS_NUM_LABELS = {"race", 4, "swag", 4, "arc", 4, "syn", 5}
+processors = {
+    "race": RaceProcessor,
+    "swag": SwagProcessor,
+    "arc": ArcProcessor,
+    "syn": SynonymProcessor,
+    "generic": GenericProcessor
+}
+MULTIPLE_CHOICE_TASKS_NUM_LABELS = {"race", 4, "swag", 4, "arc", 4, "syn", 5, "generic", 4}
