@@ -285,7 +285,7 @@ def train(args, train_dataset, model, tokenizer):
     ]
     optimizer = AdamW(optimizer_grouped_parameters, lr=args.learning_rate, eps=args.adam_epsilon)
     if args.warmup_proportion > 0:
-      args.warmup_steps = int(t_total * args.warmup_proportion)
+        args.warmup_steps = int(t_total * args.warmup_proportion)
 
     scheduler = get_linear_schedule_with_warmup(
         optimizer, num_warmup_steps=args.warmup_steps, num_training_steps=t_total
@@ -534,7 +534,7 @@ def evaluate(args, model, tokenizer, prefix="", test=False, train=True):
         else:
             output_file_prefix = "test"
 
-        fixed_prefix=str(prefix) + "_" if prefix != "" else ""
+        fixed_prefix = str(prefix) + "_" if prefix != "" else ""
 
         # save accuracy to metrics dir
         if not os.path.exists(args.output_metrics_dir) and args.local_rank in [-1, 0]:
@@ -567,11 +567,11 @@ def evaluate(args, model, tokenizer, prefix="", test=False, train=True):
                 os.makedirs(args.output_results_dir)
 
             output_preds_name = fixed_prefix + output_file_prefix + "_predictions.json"
-            output_preds_path = os.path.join(args.output_results_dir, output_results_name)
+            output_preds_path = os.path.join(args.output_results_dir, output_preds_name)
 
             # evaluate is called multiple times during training
             # only save predictions on eval and test
-            with open(output_preds_file, "w") as writer:
+            with open(output_preds_path, "w") as writer:
                 writer.write(json.dumps(raw_results) + '\n')
 
     return results

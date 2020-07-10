@@ -17,11 +17,13 @@
 
 
 import os
+import json
 import logging
 
 
 from dataclasses import dataclass, field
-from typing import Dict, Optional, NamedTuple
+from collections import defaultdict
+from typing import Dict, Optional
 
 import numpy as np
 
@@ -35,11 +37,19 @@ from transformers import (
     TrainingArguments,
     set_seed,
 )
-from utils_multiple_choice import MultipleChoiceDataset, Split, processors
+from transformers.trainer_utils import PredictionOutput
+from utils_mc import MultipleChoiceDataset, Split, processors
+
+# Force no unnecessary allocation
+import tensorflow as tf
+gpus = tf.config.experimental.list_physical_devices('GPU')
+for gpu in gpus:
+    tf.config.experimental.set_memory_growth(gpu, True)
 
 
 logger = logging.getLogger(__name__)
-os.environ.set('WANDB_DISABLED', True)
+os.environ.update(**{"WANDB_DISABLED": "true"})
+
 
 def simple_accuracy(preds, labels):
     return (preds == labels).mean()
@@ -52,10 +62,10 @@ def softmax(preds, axis=None):
     # make preds at least 2d
     y = np.atleast_2d(preds)
     # subtract the max for numerical stability
-    y = y - np.expand_dims(np.max(y, axis = axis), axis)
+    y = y - np.expand_dims(np.max(y, axis=axis), axis)
     y = np.exp(y)
     # take the sum along the specified axis
-    ax_sum = np.expand_dims(np.sum(y, axis = axis), axis)
+    ax_sum = np.expand_dims(np.sum(y, axis=axis), axis)
     p = y / ax_sum
     # flatten if preds was 1D
     if len(preds.shape) == 1:
@@ -123,47 +133,67 @@ class DirArguments:
     )
 
 
-def save_results(results, dir_args, prefix="eval"):
-
+def save_metrics(metrics, dir_args, prefix="eval"):
+    metrics_dict = {}
     output_metrics_file = os.path.join(
         dir_args.metrics_dir,
         f"{prefix}_metrics.json"
+    )
+    for key in ["eval_loss", "eval_acc"]:
+        if metrics.get(key) is not None:
+            metrics_dict[key] = metrics.get(key)
+    if len(metrics_dict.keys()) == 0:
+        logger.info("Neither loss or accuracy found on result dict!")
+    else:
+        with open(output_metrics_file, "w") as writer:
+            writer.write(json.dumps(metrics_dict) + '\n')
+        for key, value in metrics_dict.items():
+            logger.info("  %s = %s", key, value)
+
+
+def save_predictions(results, dir_args, prefix="eval"):
+    model_predictions = results.predictions
+    # cast to avoid json serialization issues
+    example_ids = [int(id) for id in results.example_ids]
+    label_ids = [int(lab) for lab in results.label_ids]
+
+    output_nbest_file = os.path.join(
+        dir_args.results_dir,
+        f"{prefix}_nbest_predictions.json"
     )
     output_predictions_file = os.path.join(
         dir_args.results_dir,
         f"{prefix}_predictions.json"
     )
-    output_nbest_file = os.path.join(
-        dir_args.results_dir,
-        f"{prefix}_nbest_predictions.json"
-    )
-    metrics = {}
-    for key in ["eval_loss", "eval_acc"]:
-        if results.get(key) is not None:
-            metrics[key] = results.get(key)
-    if len(metrics.keys()) == 0:
-        logger.info("Neither loss or accuracy found on result dict!")
-    else:
-        with open(output_metrics_file, "w") as writer:
-            writer.write(json.dumps(metrics) + '\n')
-        for key, value in metrics.items():
-            logger.info("  %s = %s", key, value)
-            writer.write("%s = %s\n" % (key, value))
 
-    if results.get("eval_preds") is None or results.get("eval_label_ids") is None:
-        logger.info("Eval predictions not found on result dict!")
-        return
+    predictions = softmax(model_predictions, axis=1)
+    predictions_dict = defaultdict(list)
+    for ex_id, true_label, preds in zip(example_ids, label_ids, predictions):
+        pred_dict = {
+            "probs": preds.tolist(),
+            "pred_label": chr(ord('A') + np.argmax(preds)),
+            "label": chr(ord('A') + true_label),
+        }
+        predictions_dict[ex_id].append(pred_dict)
 
-    all_predictions = softmax(results.get("eval_preds"), axis=1)
-    label_ids = results.get("eval_label_ids")
-    predictions_list = list(zip(label_ids, all_predictions.tolist()))
     with open(output_nbest_file, "w") as writer:
-        writer.write(json.dumps(predictions_list) + '\n')
+        writer.write(json.dumps(predictions_dict) + '\n')
 
-    predictions = np.max(all_predictions, axis=1)
-    predictions_list = list(zip(label_ids, predictions.tolist()))
+    predictions = np.argmax(predictions, axis=1)
+    predicted_labels = [chr(ord('A') + id) for id in predictions]
+    predictions_list = dict(zip(example_ids, predicted_labels))
     with open(output_predictions_file, "w") as writer:
         writer.write(json.dumps(predictions_list) + '\n')
+
+
+def save_results(results, dir_args, prefix="eval"):
+    # only predict method returns prediction outputs,
+    # evaluate and train only return the metrics
+    if isinstance(results, PredictionOutput):
+        save_metrics(results.metrics, dir_args, prefix)
+        save_predictions(results, dir_args, prefix)
+    else:
+        save_metrics(results, dir_args, prefix)
 
 
 def main():
@@ -263,12 +293,22 @@ def main():
         else None
     )
 
+    test_dataset = (
+        MultipleChoiceDataset(
+            data_dir=data_args.data_dir,
+            tokenizer=tokenizer,
+            task=data_args.task_name,
+            max_seq_length=data_args.max_seq_length,
+            overwrite_cache=data_args.overwrite_cache,
+            mode=Split.test,
+        )
+        if training_args.do_predict
+        else None
+    )
+
     def compute_metrics(p: EvalPrediction) -> Dict:
         preds = np.argmax(p.predictions, axis=1)
-        return {
-            "acc": simple_accuracy(preds, p.label_ids),
-            "preds": (p.predictions, p.label_ids)
-        }
+        return {"acc": simple_accuracy(preds, p.label_ids)}
 
     # Initialize our Trainer
     trainer = Trainer(
@@ -294,17 +334,22 @@ def main():
         if trainer.is_world_master():
             tokenizer.save_pretrained(training_args.output_dir)
 
+    results = {}
     if training_args.do_eval:
-        logger.info(f"*** Evaluate ***")
-        results = trainer.evaluate()
+        logger.info("*** Evaluate ***")
+        result = trainer.predict(eval_dataset)
         if trainer.is_world_master():
-            save_results(results, dir_args, prefix="eval")
+            save_results(result, dir_args, prefix="eval")
+            results['eval'] = result
 
-    if training_args.do_test:
-        logger.info(f"*** Test ***")
-        results = trainer.predict()
+    if training_args.do_predict:
+        logger.info("*** Test ***")
+        result = trainer.predict(test_dataset)
         if trainer.is_world_master():
-            save_results(results, dir_args, prefix="test")
+            save_results(result, dir_args, prefix="test")
+            results['test'] = result
+
+    return results
 
 
 def _mp_fn(index):
