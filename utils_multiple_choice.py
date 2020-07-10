@@ -379,21 +379,24 @@ class EntranceExamsProcessor(DataProcessor):
 
 class GenericProcessor(DataProcessor):
 
-    def _read_examples(self, data_dir, set_type):
+    def _read_examples(self, file_path, set_type):
         """See base class."""
-        logger.info("LOOKING AT {}".format(data_dir))
-        data = self._read_json(data_dir)
-        return self._create_examples(data, "train")
+        logger.info("LOOKING AT {}".format(file_path))
+        data = self._read_json(file_path)
+        return self._create_examples(data, set_type)
 
     """Processor for the Generic data sets."""
     def get_train_examples(self, data_dir):
-        return self._read_examples(data_dir, "train")
+        data_file_path = os.path.join(data_dir, "train")
+        return self._read_examples(data_file_path, "train")
 
     def get_dev_examples(self, data_dir):
-        return self._read_examples(data_dir, "dev")
+        data_file_path = os.path.join(data_dir, "dev")
+        return self._read_examples(data_file_path, "dev")
 
     def get_test_examples(self, data_dir):
-        return self._read_examples(data_dir, "test")
+        data_file_path = os.path.join(data_dir, "test")
+        return self._read_examples(data_file_path, "test")
 
     def get_labels(self):
         """See base class."""
