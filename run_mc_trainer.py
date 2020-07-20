@@ -210,7 +210,7 @@ def main():
 
     if (
         os.path.exists(training_args.output_dir)
-        and os.listdir(training_args.output_dir)
+        and [f for f in os.listdir(training_args.output_dir) if f != '.gitignore']
         and training_args.do_train
         and not training_args.overwrite_output_dir
     ):
