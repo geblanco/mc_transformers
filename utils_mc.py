@@ -526,15 +526,15 @@ class GenericProcessor(DataProcessor):
 
     """Processor for the Generic data sets."""
     def get_train_examples(self, data_dir):
-        data_file_path = os.path.join(data_dir, "train")
+        data_file_path = os.path.join(data_dir, "train.json")
         return self._read_examples(data_file_path, "train")
 
     def get_dev_examples(self, data_dir):
-        data_file_path = os.path.join(data_dir, "dev")
+        data_file_path = os.path.join(data_dir, "dev.json")
         return self._read_examples(data_file_path, "dev")
 
     def get_test_examples(self, data_dir):
-        data_file_path = os.path.join(data_dir, "test")
+        data_file_path = os.path.join(data_dir, "test.json")
         return self._read_examples(data_file_path, "test")
 
     def get_labels(self):
