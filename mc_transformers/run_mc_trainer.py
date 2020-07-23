@@ -36,14 +36,17 @@ from transformers import (
     TrainingArguments,
     set_seed,
 )
+from transformers import is_tf_available
 from transformers.trainer_utils import PredictionOutput
-from utils_mc import MultipleChoiceDataset, Split, processors
+from mc_transformers.utils_mc import MultipleChoiceDataset, Split, processors
 
-# Force no unnecessary allocation
-import tensorflow as tf
-gpus = tf.config.experimental.list_physical_devices('GPU')
-for gpu in gpus:
-    tf.config.experimental.set_memory_growth(gpu, True)
+
+if is_tf_available():
+    # Force no unnecessary allocation
+    import tensorflow as tf
+    gpus = tf.config.experimental.list_physical_devices('GPU')
+    for gpu in gpus:
+        tf.config.experimental.set_memory_growth(gpu, True)
 
 
 logger = logging.getLogger(__name__)
