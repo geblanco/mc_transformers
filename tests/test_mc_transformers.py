@@ -5,7 +5,7 @@
 
 import unittest
 
-from mc_transformers import mc_transformers
+from mc_transformers import mc_transformers  # noqa: F401
 
 
 class TestMc_transformers(unittest.TestCase):
