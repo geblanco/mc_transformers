@@ -22,7 +22,6 @@ import logging
 
 
 from dataclasses import dataclass, field
-from collections import defaultdict
 from typing import Dict, Optional
 
 import numpy as np
@@ -167,14 +166,14 @@ def save_predictions(results, dir_args, prefix="eval"):
     )
 
     predictions = softmax(model_predictions, axis=1)
-    predictions_dict = defaultdict(list)
+    predictions_dict = {}
     for ex_id, true_label, preds in zip(example_ids, label_ids, predictions):
         pred_dict = {
             "probs": preds.tolist(),
             "pred_label": chr(ord('A') + np.argmax(preds)),
             "label": chr(ord('A') + true_label),
         }
-        predictions_dict[ex_id].append(pred_dict)
+        predictions_dict[ex_id] = pred_dict
 
     with open(output_nbest_file, "w") as writer:
         writer.write(json.dumps(predictions_dict) + '\n')
