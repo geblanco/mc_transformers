@@ -274,26 +274,32 @@ class RaceProcessor(DataProcessor):
         """See base class."""
         return ["0", "1", "2", "3"]
 
-    def _encode_id(self, race_id):
+    def _encode_id(self, race_id, example_id):
         """
-          train/dev/test := 01, 02, 03
-          high/middle    := 04, 02
-          <int>.txt      := int
-          /              := 00
+        train/dev/test := 01, 02, 03
+        high/middle    := 04, 02
+        <int>.txt      := int
+        /              := 00
         """
         race_id = self.reg.findall(race_id)[0]
         for repl in self.replacements:
             race_id = race_id.replace(repl[0], repl[1])
+        str_example_id = str(example_id)
+        if example_id < 10:
+            str_example_id = '0' + str_example_id
+        race_id += str_example_id
         return int(race_id)
 
     def _decode_id(self, race_id):
         # 0 stripped from the beggining in numbers
         race_id = '0' + str(race_id)
-        id = race_id[8:] + '.txt'
+        example_id = race_id[-2:]
+        id = race_id[8:-2] + '.txt'
         race_id = race_id[:8]
         for repl in self.replacements:
             race_id = race_id.replace(repl[1], repl[0])
-        return race_id + id
+        race_id += id
+        return race_id, example_id
 
     def _read_txt(self, input_dir):
         lines = []
@@ -309,9 +315,9 @@ class RaceProcessor(DataProcessor):
         """Creates examples for the training and dev sets."""
         examples = []
         for (_, data_raw) in enumerate(lines):
-            race_id = self._encode_id(data_raw['race_id'])
             article = data_raw["article"]
             for i in range(len(data_raw["answers"])):
+                race_id = self._encode_id(data_raw['race_id'], i)
                 truth = str(ord(data_raw["answers"][i]) - ord("A"))
                 question = data_raw["questions"][i]
                 options = data_raw["options"][i]
@@ -541,7 +547,8 @@ class GenericProcessor(DataProcessor):
         """See base class."""
         return ["0", "1", "2", "3"]
 
-    def _encode_generic_id(self, str_id):
+    def _encode_generic_id(self, str_id, example_id):
+        str_id = str(str_id)
         id = ''
         # ascii representation of an alphabet char is always a number
         # of two/three ciphers.
@@ -550,11 +557,17 @@ class GenericProcessor(DataProcessor):
             # ensure 3 chars representation for each character
             str_int_char = str(int_char) if int_char > 99 else ('0' + str(int_char))
             id = '{}{}'.format(id, str_int_char)
+        str_example_id = str(example_id)
+        if example_id < 10:
+            str_example_id = '0' + str_example_id
+        id += str_example_id
         return int(id)
 
     def _decode_generic_id(self, int_id):
         id = ''
         str_int_id = str(int_id)
+        example_id = str_int_id[-2:]
+        str_int_id = str_int_id[:-2]
         # ascii representation of an alphabet char is always a number
         # of two/three ciphers, stick to three digits
         if len(str_int_id) % 3 != 0:
@@ -563,7 +576,7 @@ class GenericProcessor(DataProcessor):
         for idx in range(0, len(str_int_id), 3):
             char = chr(int(str_int_id[idx:idx+3]))
             id = '{}{}'.format(id, str(char))
-        return id
+        return id, example_id
 
     def _read_json(self, input_file):
         with open(input_file, "r", encoding="utf-8") as fin:
@@ -577,8 +590,8 @@ class GenericProcessor(DataProcessor):
             article = data_raw['article']
             # encode by default. When input_batching with ids, no string tensor is
             # allowed, ensure that example ids are always numeric.
-            example_id = self._encode_generic_id(data_raw['id'])
             for i in range(len(data_raw["answers"])):
+                example_id = self._encode_generic_id(data_raw['id'], i)
                 truth = str(ord(data_raw["answers"][i]) - ord("A"))
                 question = data_raw["questions"][i]
                 options = data_raw["options"][i]
