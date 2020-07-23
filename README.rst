@@ -9,8 +9,8 @@ mc_transformers
 .. image:: https://img.shields.io/travis/geblanco/mc_transformers.svg
         :target: https://travis-ci.com/geblanco/mc_transformers
 
-.. image:: https://readthedocs.org/projects/mc-transformers/badge/?version=latest
-        :target: https://mc-transformers.readthedocs.io/en/latest/?badge=latest
+.. image:: https://readthedocs.org/projects/mc_transformers/badge/?version=latest
+        :target: https://mc_transformers.readthedocs.io/en/latest/?badge=latest
         :alt: Documentation Status
 
 Code to run experiments over Multiple Choice QA with huggingface/transformers.
