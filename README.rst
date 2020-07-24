@@ -7,7 +7,7 @@ mc_transformers
         :target: https://pypi.python.org/pypi/mc_transformers
 
 .. image:: https://img.shields.io/travis/geblanco/mc_transformers.svg
-        :target: https://travis-ci.com/geblanco/mc_transformers
+        :target: https://travis-ci.org/geblanco/mc_transformers
 
 .. image:: https://readthedocs.org/projects/mc_transformers/badge/?version=latest
         :target: https://mc_transformers.readthedocs.io/en/latest/?badge=latest
