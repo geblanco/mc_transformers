@@ -524,6 +524,8 @@ class ArcProcessor(DataProcessor):
 
 class GenericProcessor(DataProcessor):
 
+    nof_labels = 4
+
     def _read_examples(self, file_path, set_type):
         """See base class."""
         logger.info("LOOKING AT {}".format(file_path))
@@ -545,9 +547,9 @@ class GenericProcessor(DataProcessor):
 
     def get_labels(self):
         """See base class."""
-        return ["0", "1", "2", "3"]
+        return [str(lab) for lab in range(self.nof_labels)]
 
-    def _encode_generic_id(self, str_id, example_id):
+    def _encode_id(self, str_id, example_id):
         str_id = str(str_id)
         id = ''
         # ascii representation of an alphabet char is always a number
@@ -563,7 +565,7 @@ class GenericProcessor(DataProcessor):
         id += str_example_id
         return int(id)
 
-    def _decode_generic_id(self, int_id):
+    def _decode_id(self, int_id):
         id = ''
         str_int_id = str(int_id)
         example_id = str_int_id[-2:]
@@ -591,17 +593,18 @@ class GenericProcessor(DataProcessor):
             # encode by default. When input_batching with ids, no string tensor is
             # allowed, ensure that example ids are always numeric.
             for i in range(len(data_raw["answers"])):
-                example_id = self._encode_generic_id(data_raw['id'], i)
+                example_id = self._encode_id(data_raw['id'], i)
                 truth = str(ord(data_raw["answers"][i]) - ord("A"))
                 question = data_raw["questions"][i]
                 options = data_raw["options"][i]
+                self.nof_labels = len(options)
 
                 examples.append(
                     InputExample(
                         example_id=example_id,
                         question=question,
-                        contexts=[article, article, article, article],  # this is not efficient but convenient
-                        endings=[options[0], options[1], options[2], options[3]],
+                        contexts=[article] * len(options),
+                        endings=options,
                         label=truth,
                     )
                 )
