@@ -263,7 +263,6 @@ def main():
             parser.parse_args_into_dataclasses()
         )
 
-    sys.exit(0)
     if (
         os.path.exists(training_args.output_dir)
         and [f for f in os.listdir(training_args.output_dir) if f != '.gitignore']
