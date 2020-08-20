@@ -17,6 +17,7 @@
 
 
 import os
+import sys
 import json
 import logging
 
@@ -147,13 +148,35 @@ class WindowArguments:
             "help": "Stride to use when windowing features"
         }
     )
-    # not used yet
-    # no_answer_text: Optional[str] = field(
-    #     default=None,
-    #     metadata={
-    #         "help": "Text of an unanswerable answer option"
-    #     }
-    # )
+    no_answer_text: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "Text of an unanswerable question option"
+        }
+    )
+
+
+def process_ids(processor, example_ids, window_args):
+    example_ids = [int(id) for id in example_ids]
+    # decode id with processor
+    if callable(getattr(processor, "_decode_id")):
+        if (
+            window_args.stride is not None and
+            window_args.no_answer_text is not None
+        ):
+            # strip truncation window index
+            # ToDo: = Should join + argmax by windows
+            strip = 2
+        else:
+            strip = 0
+        # returns: context_id, question-answer_id
+        decoded_ids = []
+        for ex_id in example_ids:
+            str_ex_id = str(ex_id)
+            str_ex_id = str_ex_id[:len(str_ex_id) - strip]
+            decoded_ids.append(processor._decode_id(int(str_ex_id)))
+        example_ids = decoded_ids
+    return example_ids
 
 
 def save_metrics(metrics, dir_args, prefix="eval"):
@@ -174,14 +197,10 @@ def save_metrics(metrics, dir_args, prefix="eval"):
             logger.info("  %s = %s", key, value)
 
 
-def save_predictions(processor, results, dir_args, prefix="eval"):
+def save_predictions(processor, results, dir_args, window_args, prefix="eval"):
     model_predictions = results.predictions
     # cast to avoid json serialization issues
-    example_ids = [int(id) for id in results.example_ids]
-    # decode id with processor
-    if callable(getattr(processor, "_decode_id")):
-        # returns: context_id, question-answer_id
-        example_ids = [processor._decode_id(ex_id) for ex_id in example_ids]
+    example_ids = process_ids(processor, results.example_ids, window_args)
     label_ids = [int(lab) for lab in results.label_ids]
 
     output_nbest_file = os.path.join(
@@ -217,12 +236,12 @@ def save_predictions(processor, results, dir_args, prefix="eval"):
         writer.write(json.dumps(predictions_list) + '\n')
 
 
-def save_results(processor, results, dir_args, prefix="eval"):
+def save_results(processor, results, dir_args, window_args, prefix="eval"):
     # only predict method returns prediction outputs,
     # evaluate and train only return the metrics
     if isinstance(results, PredictionOutput):
         save_metrics(results.metrics, dir_args, prefix)
-        save_predictions(processor, results, dir_args, prefix)
+        save_predictions(processor, results, dir_args, window_args, prefix)
     else:
         save_metrics(results, dir_args, prefix)
 
@@ -235,10 +254,16 @@ def main():
         ModelArguments, DataTrainingArguments,
         DirArguments, TrainingArguments, WindowArguments
     ))
-    model_args, data_args, dir_args, training_args, window_args = (
-        parser.parse_args_into_dataclasses()
-    )
+    if len(sys.argv) > 1 and sys.argv[1].endswith('.json'):
+        model_args, data_args, dir_args, training_args, window_args = (
+            parser.parse_json_file(sys.argv[1])
+        )
+    else:
+        model_args, data_args, dir_args, training_args, window_args = (
+            parser.parse_args_into_dataclasses()
+        )
 
+    sys.exit(0)
     if (
         os.path.exists(training_args.output_dir)
         and [f for f in os.listdir(training_args.output_dir) if f != '.gitignore']
@@ -308,6 +333,7 @@ def main():
             overwrite_cache=data_args.overwrite_cache,
             mode=Split.train,
             stride=window_args.stride,
+            no_answer_text=window_args.no_answer_text,
         )
         if training_args.do_train
         else None
@@ -321,6 +347,7 @@ def main():
             overwrite_cache=data_args.overwrite_cache,
             mode=Split.dev,
             stride=window_args.stride,
+            no_answer_text=window_args.no_answer_text,
         )
         if training_args.do_eval
         else None
@@ -335,6 +362,7 @@ def main():
             overwrite_cache=data_args.overwrite_cache,
             mode=Split.test,
             stride=window_args.stride,
+            no_answer_text=window_args.no_answer_text,
         )
         if training_args.do_predict
         else None
@@ -373,14 +401,18 @@ def main():
         logger.info("*** Evaluate ***")
         result = trainer.predict(eval_dataset)
         if trainer.is_world_master():
-            save_results(processor, result, dir_args, prefix="eval")
+            save_results(
+                processor, result, dir_args, window_args, prefix="eval"
+            )
             results['eval'] = result
 
     if training_args.do_predict:
         logger.info("*** Test ***")
         result = trainer.predict(test_dataset)
         if trainer.is_world_master():
-            save_results(processor, result, dir_args, prefix="test")
+            save_results(
+                processor, result, dir_args, window_args, prefix="test"
+            )
             results['test'] = result
 
     return results
