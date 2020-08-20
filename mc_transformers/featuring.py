@@ -1,7 +1,8 @@
 import tqdm
+import random
 import logging
 
-from typing import List, Callable
+from typing import List, Callable, Tuple
 from transformers import PreTrainedTokenizer
 from mc_transformers.data_classes import InputFeatures, InputExample
 
@@ -9,29 +10,28 @@ from mc_transformers.data_classes import InputFeatures, InputExample
 logger = logging.getLogger(__name__)
 
 
+try:
+    from nltk.corpus import stopwords
+    from nltk.stem import SnowballStemmer, WordNetLemmatizer
+    from nltk.tokenize import word_tokenize
+    is_nltk_available = True
+except ImportError:
+    is_nltk_available = False
+
+
 class TextTokenizer(object):
-    def __init__(self):
-        # lazy loading
-        try:
-            from nltk.corpus import stopwords
-            from nltk.stem import SnowballStemmer, WordNetLemmatizer
-            self.stop_words = stopwords.words("english")
-            self.lemmatizer = WordNetLemmatizer()
-            self.stemmer = SnowballStemmer("english")
-        except ImportError:
-            self.stop_words = None
-            self.lemmatizer = None
-            self.stemmer = None
+    stop_words = stopwords.words("english") if is_nltk_available else None
+    lemmatizer = WordNetLemmatizer() if is_nltk_available else None
+    stemmer = SnowballStemmer("english") if is_nltk_available else None
 
     def __call__(self, text):
-        try:
-            from nltk.tokenize import word_tokenize
+        if is_nltk_available:
             text_tokens = word_tokenize(text.lower().strip())
             return [
                 self.stemmer.stem(self.lemmatizer.lemmatize(w))
                 for w in text_tokens if w not in self.stop_words
             ]
-        except ImportError:
+        else:
             logger.warning(
                 "You are using a `TextTokenizer` for windowing but NLTK module"
                 " is not installed, you can install with "
@@ -44,29 +44,47 @@ def argmax(arr: List) -> int:
     return max(enumerate(arr), key=lambda elem: len(elem[1]))[0]
 
 
+def match_text_by_tokenizer(
+    text_a: str,
+    text_b: str,
+    text_tokenizer: TextTokenizer,
+) -> bool:
+    text_a_tokens = text_tokenizer(text_a)
+    text_b_tokens = text_tokenizer(text_b)
+    threshold = 0.5
+    nof_correct = sum([
+        1 if token in text_a_tokens else 0
+        for token in text_b_tokens
+    ])
+    if nof_correct > 0:
+        nof_correct /= len(text_b_tokens)
+    return (nof_correct > threshold)
+
+
 def should_correct_label(
-    window_context: str,
-    answer: str,
+    context: str,
+    endings: str,
     no_answer_text: str,
     text_tokenizer: TextTokenizer,
 ) -> bool:
     # find if the answer is contained in the context,
     # which possibly indicates that the current window
     # context is enough to guess the answer
-    ctx = window_context.lower()
-    ans = answer.lower()
-    correct = no_answer_text == ans or ctx.find(ans) != -1
-    if not correct:
-        ctx_tokens = text_tokenizer(ctx)
-        ans_tokens = text_tokenizer(ans)
-        nof_correct = sum([
-            1 if token in ctx_tokens else 0
-            for token in ans_tokens
-        ])
-        if nof_correct > 0:
-            nof_correct /= len(ans_tokens)
-        correct = nof_correct > 0.5
+    # ToDo := This should be revised, if inference is to be made,
+    # words do not necessarily appear in the options
+    ctx = context.lower()
+    endings = [end.lower() for end in endings]
+    correct = False
+    for ans in endings:
+        correct = (
+            (no_answer_text == ans or ctx.find(ans) != -1) or
+            match_text_by_tokenizer(
+                text_a=ctx, text_b=ans, text_tokenizer=text_tokenizer
+            )
+        )
 
+        if correct:
+            break
     return correct
 
 
@@ -82,6 +100,35 @@ def should_window(
     # get the longest span to test max length
     text_b_tokens = tokenizer.encode(longest_concat, add_special_tokens=False)
     return len(context_tokens) + len(text_b_tokens) > max_length
+
+
+def correct_label(
+    context: str,
+    endings: List[str],
+    no_answer_text: str,
+    text_tokenizer: TextTokenizer,
+) -> Tuple[int, List[str]]:
+    # find `no answer text` in endings, if not found, replace a random ending
+    # with the provided one and mark it as the correct answer
+    found = False
+    label_index = -1
+    endings = [end.lower() for end in endings]
+    for idx, ans in enumerate(endings):
+        found = (
+            (no_answer_text == ans or ans.find(no_answer_text) != -1) or
+            match_text_by_tokenizer(
+                text_a=no_answer_text, text_b=ans, text_tokenizer=text_tokenizer,
+            )
+        )
+        if found:
+            label_index = idx
+            break
+
+    if not found:
+        label_index = random.choice(range(len(endings)))
+        endings[label_index] = no_answer_text
+
+    return label_index, endings
 
 
 def create_windows(
@@ -186,23 +233,37 @@ def windowed_tokenization(
         example.contexts[0], tokenizer, max_length, stride
     )
     logger.info(f"Created {len(window_texts)} windows for `{example.example_id}` example")
-    concats = concat_question_and_endings(example.question, example.endings)
-    # win 1: end 1
-    # win 1: end 2
-    # ....
-    # win n: end 1
-    # win n: end m
-    texts_a, texts_b = list(zip(*[
-        (text_a, text_b) for text_a in window_texts for text_b in concats
-    ]))
-    return create_input_features(
-        contexts=texts_a,
-        endings=texts_b,
-        example_id=example.example_id,
-        label=label_map[example.label],
-        max_length=max_length,
-        tokenizer=tokenizer,
-    )
+    features = []
+    for win_idx, window_text in enumerate(window_texts):
+        if should_correct_label(
+            window_text, example.endings, no_answer_text, text_tokenizer
+        ):
+            label, endings = correct_label(
+                window_text,
+                example.endings.copy(),
+                no_answer_text,
+                text_tokenizer
+            )
+        else:
+            label = label_map[example.label]
+            endings = example.endings
+
+        # maximum 100 windows
+        texts_a = [window_text] * len(endings)
+        texts_b = concat_question_and_endings(example.question, endings)
+        example_id = int(str(example.example_id) + str(win_idx))
+        features.append(
+            create_input_features(
+                contexts=texts_a,
+                endings=texts_b,
+                example_id=example_id,
+                label=label,
+                max_length=max_length,
+                tokenizer=tokenizer,
+            )
+        )
+
+    return features
 
 
 def convert_examples_to_features(
@@ -233,7 +294,7 @@ def convert_examples_to_features(
             logger.info("Writing example %d of %d" % (ex_index, len(examples)))
 
         if enable_window and should_window(example, tokenizer, max_length):
-            feats = windowed_tokenization(
+            features.extend(windowed_tokenization(
                 example=example,
                 label_map=label_map,
                 max_length=max_length,
@@ -242,21 +303,19 @@ def convert_examples_to_features(
                 tokenizer=tokenizer,
                 text_tokenizer=text_tokenizer,
                 window_fn=window_fn
-            )
+            ))
         else:
             concats = concat_question_and_endings(
                 example.question, example.endings
             )
-            feats = create_input_features(
+            features.append(create_input_features(
                 contexts=example.contexts,
                 endings=concats,
                 example_id=example.example_id,
                 label=label_map[example.label],
                 max_length=max_length,
                 tokenizer=tokenizer,
-            )
-
-        features.append(feats)
+            ))
 
     for f in features[:2]:
         logger.info("*** Example ***")

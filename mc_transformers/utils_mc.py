@@ -63,7 +63,7 @@ if is_torch_available():
             max_seq_length: Optional[int] = None,
             overwrite_cache=False,
             mode: Split = Split.train,
-            stride: int = -1,
+            stride: int = None,
             no_answer_text: str = None,
             window_fn: Callable = None,
         ):
@@ -92,7 +92,8 @@ if is_torch_available():
                     else:
                         examples = processor.get_train_examples(data_dir)
                     logger.info("Training examples: %s", len(examples))
-                    windowing = (stride is not None) or no_answer_text is not None
+
+                    windowing = (stride is not None) and (no_answer_text is not None)
                     self.features = convert_examples_to_features(
                         examples,
                         label_list,
@@ -132,7 +133,7 @@ if is_tf_available():
             max_seq_length: Optional[int] = 128,
             overwrite_cache=False,
             mode: Split = Split.train,
-            stride: int = -1,
+            stride: int = None,
             no_answer_text: str = None,
             window_fn: Callable = None,
         ):
@@ -147,7 +148,8 @@ if is_tf_available():
             else:
                 examples = processor.get_train_examples(data_dir)
             logger.info("Training examples: %s", len(examples))
-            windowing = (stride is not None) or no_answer_text is not None
+
+            windowing = (stride is not None) and (no_answer_text is not None)
             self.features = convert_examples_to_features(
                 examples,
                 label_list,
