@@ -34,6 +34,9 @@ setup(
             'mc_transformers=mc_transformers.run_mc_trainer:main',
         ],
     },
+    extras_require={
+        'windowing': ['nltk']
+    },
     install_requires=requirements,
     license="Apache Software License 2.0",
     long_description=readme + '\n\n' + history,

@@ -136,6 +136,26 @@ class DirArguments:
     )
 
 
+@dataclass
+class WindowArguments:
+    """
+    Arguments pertaining to output directories for metrics, results and predictions
+    """
+    stride: Optional[int] = field(
+        default=None,
+        metadata={
+            "help": "Stride to use when windowing features"
+        }
+    )
+    # not used yet
+    # no_answer_text: Optional[str] = field(
+    #     default=None,
+    #     metadata={
+    #         "help": "Text of an unanswerable answer option"
+    #     }
+    # )
+
+
 def save_metrics(metrics, dir_args, prefix="eval"):
     metrics_dict = {}
     output_metrics_file = os.path.join(
@@ -213,7 +233,7 @@ def main():
     # We now keep distinct sets of args, for a cleaner separation of concerns.
     parser = HfArgumentParser((
         ModelArguments, DataTrainingArguments,
-        DirArguments, TrainingArguments
+        DirArguments, TrainingArguments, WindowArguments
     ))
     model_args, data_args, dir_args, training_args = (
         parser.parse_args_into_dataclasses()

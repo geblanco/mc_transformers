@@ -92,7 +92,7 @@ if is_torch_available():
                     else:
                         examples = processor.get_train_examples(data_dir)
                     logger.info("Training examples: %s", len(examples))
-                    windowing = (stride > 0) and no_answer_text is not None
+                    windowing = (stride > 0) or no_answer_text is not None
                     self.features = convert_examples_to_features(
                         examples,
                         label_list,
@@ -153,7 +153,7 @@ if is_tf_available():
                 label_list,
                 max_seq_length,
                 tokenizer,
-                enable_window=(stride > 0) and no_answer_text is not None,
+                enable_window=(stride > 0) or no_answer_text is not None,
                 stride=stride,
                 no_answer_text=no_answer_text,
                 window_fn=window_fn,

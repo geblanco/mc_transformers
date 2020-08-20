@@ -1,10 +1,6 @@
 import tqdm
 import logging
 
-from nltk.corpus import stopwords
-from nltk.tokenize import word_tokenize
-from nltk.stem import SnowballStemmer, WordNetLemmatizer
-
 from typing import List, Callable
 from transformers import PreTrainedTokenizer
 from mc_transformers.data_classes import InputFeatures, InputExample
@@ -14,16 +10,34 @@ logger = logging.getLogger(__name__)
 
 
 class TextTokenizer(object):
-    stop_words = stopwords.words("english")
-    lemmatizer = WordNetLemmatizer()
-    stemmer = SnowballStemmer("english")
+    def __init__(self):
+        # lazy loading
+        try:
+            from nltk.corpus import stopwords
+            from nltk.stem import SnowballStemmer, WordNetLemmatizer
+            self.stop_words = stopwords.words("english")
+            self.lemmatizer = WordNetLemmatizer()
+            self.stemmer = SnowballStemmer("english")
+        except ImportError:
+            self.stop_words = None
+            self.lemmatizer = None
+            self.stemmer = None
 
     def __call__(self, text):
-        text_tokens = word_tokenize(text.lower().strip())
-        return [
-            self.stemmer.stem(self.lemmatizer.lemmatize(w))
-            for w in text_tokens if w not in self.stop_words
-        ]
+        try:
+            from nltk.tokenize import word_tokenize
+            text_tokens = word_tokenize(text.lower().strip())
+            return [
+                self.stemmer.stem(self.lemmatizer.lemmatize(w))
+                for w in text_tokens if w not in self.stop_words
+            ]
+        except ImportError:
+            logger.warning(
+                "You are using a `TextTokenizer` for windowing but NLTK module"
+                " is not installed, you can install with "
+                "`pip install mc_transformers[windowing]`"
+            )
+            return text.lower().strip().split(' ')
 
 
 def argmax(arr: List) -> int:
@@ -165,6 +179,8 @@ def windowed_tokenization(
     # ToDo := Different amount of windows will trigger an error because of
     # different size in input features? sequences should be grouped by
     # size and chopped, padded accordingly
+
+    # ToDo := no_answer_text is not used by now, no label corrected
     window_fn = window_fn if window_fn is not None else create_windows
     window_texts = window_fn(
         example.contexts[0], tokenizer, max_length, stride
@@ -202,7 +218,7 @@ def convert_examples_to_features(
     """
     Loads a data file into a list of `InputFeatures`
     """
-    if enable_window and (stride is None or no_answer_text is None):
+    if enable_window and (stride is None and no_answer_text is None):
         raise ValueError(
             'Windowing mechanism is activated, but no "stride" or '
             '"no answer text" was provided, please provide them or disable'
