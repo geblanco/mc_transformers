@@ -21,8 +21,9 @@ import json
 import logging
 
 
-from dataclasses import dataclass, field
 from typing import Dict, Optional
+from collections import defaultdict
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -153,10 +154,14 @@ def save_metrics(metrics, dir_args, prefix="eval"):
             logger.info("  %s = %s", key, value)
 
 
-def save_predictions(results, dir_args, prefix="eval"):
+def save_predictions(processor, results, dir_args, prefix="eval"):
     model_predictions = results.predictions
     # cast to avoid json serialization issues
     example_ids = [int(id) for id in results.example_ids]
+    # decode id with processor
+    if callable(getattr(processor, "_decode_id")):
+        # returns: context_id, question-answer_id
+        example_ids = [processor._decode_id(ex_id) for ex_id in example_ids]
     label_ids = [int(lab) for lab in results.label_ids]
 
     output_nbest_file = os.path.join(
@@ -169,31 +174,35 @@ def save_predictions(results, dir_args, prefix="eval"):
     )
 
     predictions = softmax(model_predictions, axis=1)
-    predictions_dict = {}
+    predictions_dict = defaultdict(list)
     for ex_id, true_label, preds in zip(example_ids, label_ids, predictions):
         pred_dict = {
             "probs": preds.tolist(),
             "pred_label": chr(ord('A') + np.argmax(preds)),
             "label": chr(ord('A') + true_label),
         }
-        predictions_dict[ex_id] = pred_dict
+        # we only want the context-question id
+        if callable(getattr(processor, "_decode_id")):
+            ex_id, _ = ex_id
+        predictions_dict[ex_id].append(pred_dict)
 
     with open(output_nbest_file, "w") as writer:
         writer.write(json.dumps(predictions_dict) + '\n')
 
+    full_ids = ['-'.join(c_id, qa_id) for c_id, qa_id in example_ids]
     predictions = np.argmax(predictions, axis=1)
     predicted_labels = [chr(ord('A') + id) for id in predictions]
-    predictions_list = dict(zip(example_ids, predicted_labels))
+    predictions_list = dict(zip(full_ids, predicted_labels))
     with open(output_predictions_file, "w") as writer:
         writer.write(json.dumps(predictions_list) + '\n')
 
 
-def save_results(results, dir_args, prefix="eval"):
+def save_results(processor, results, dir_args, prefix="eval"):
     # only predict method returns prediction outputs,
     # evaluate and train only return the metrics
     if isinstance(results, PredictionOutput):
         save_metrics(results.metrics, dir_args, prefix)
-        save_predictions(results, dir_args, prefix)
+        save_predictions(processor, results, dir_args, prefix)
     else:
         save_metrics(results, dir_args, prefix)
 
@@ -341,14 +350,14 @@ def main():
         logger.info("*** Evaluate ***")
         result = trainer.predict(eval_dataset)
         if trainer.is_world_master():
-            save_results(result, dir_args, prefix="eval")
+            save_results(processor, result, dir_args, prefix="eval")
             results['eval'] = result
 
     if training_args.do_predict:
         logger.info("*** Test ***")
         result = trainer.predict(test_dataset)
         if trainer.is_world_master():
-            save_results(result, dir_args, prefix="test")
+            save_results(processor, result, dir_args, prefix="test")
             results['test'] = result
 
     return results
