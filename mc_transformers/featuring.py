@@ -11,6 +11,10 @@ logger = logging.getLogger(__name__)
 
 
 try:
+    import nltk
+    # download extra data
+    nltk.download(['stopwords', 'punkt', 'wordnet'])
+
     from nltk.corpus import stopwords
     from nltk.stem import SnowballStemmer, WordNetLemmatizer
     from nltk.tokenize import word_tokenize
