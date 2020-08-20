@@ -235,7 +235,7 @@ def main():
         ModelArguments, DataTrainingArguments,
         DirArguments, TrainingArguments, WindowArguments
     ))
-    model_args, data_args, dir_args, training_args = (
+    model_args, data_args, dir_args, training_args, window_args = (
         parser.parse_args_into_dataclasses()
     )
 
@@ -307,6 +307,7 @@ def main():
             max_seq_length=data_args.max_seq_length,
             overwrite_cache=data_args.overwrite_cache,
             mode=Split.train,
+            stride=window_args.stride,
         )
         if training_args.do_train
         else None
@@ -319,6 +320,7 @@ def main():
             max_seq_length=data_args.max_seq_length,
             overwrite_cache=data_args.overwrite_cache,
             mode=Split.dev,
+            stride=window_args.stride,
         )
         if training_args.do_eval
         else None
@@ -332,6 +334,7 @@ def main():
             max_seq_length=data_args.max_seq_length,
             overwrite_cache=data_args.overwrite_cache,
             mode=Split.test,
+            stride=window_args.stride,
         )
         if training_args.do_predict
         else None
