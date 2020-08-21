@@ -63,6 +63,7 @@ if is_torch_available():
             max_seq_length: Optional[int] = None,
             overwrite_cache=False,
             mode: Split = Split.train,
+            enable_windowing: bool = False,
             stride: int = None,
             no_answer_text: str = None,
             window_fn: Callable = None,
@@ -93,13 +94,12 @@ if is_torch_available():
                         examples = processor.get_train_examples(data_dir)
                     logger.info("Training examples: %s", len(examples))
 
-                    windowing = (stride is not None) and (no_answer_text is not None)
                     self.features = convert_examples_to_features(
                         examples,
                         label_list,
                         max_seq_length,
                         tokenizer,
-                        enable_window=windowing,
+                        enable_windowing=enable_windowing,
                         stride=stride,
                         no_answer_text=no_answer_text,
                         window_fn=window_fn,
@@ -133,6 +133,7 @@ if is_tf_available():
             max_seq_length: Optional[int] = 128,
             overwrite_cache=False,
             mode: Split = Split.train,
+            enable_windowing: bool = False,
             stride: int = None,
             no_answer_text: str = None,
             window_fn: Callable = None,
@@ -149,13 +150,12 @@ if is_tf_available():
                 examples = processor.get_train_examples(data_dir)
             logger.info("Training examples: %s", len(examples))
 
-            windowing = (stride is not None) and (no_answer_text is not None)
             self.features = convert_examples_to_features(
                 examples,
                 label_list,
                 max_seq_length,
                 tokenizer,
-                enable_window=windowing,
+                enable_windowing=enable_windowing,
                 stride=stride,
                 no_answer_text=no_answer_text,
                 window_fn=window_fn,
@@ -605,74 +605,6 @@ class GenericProcessor(DataProcessor):
         return examples
 
 
-# deprecated
-# def convert_examples_to_features(
-#     examples: List[InputExample], label_list: List[str], max_length: int, tokenizer: PreTrainedTokenizer,
-# ) -> List[InputFeatures]:
-#     """
-#     Loads a data file into a list of `InputFeatures`
-#     """
-
-#     label_map = {label: i for i, label in enumerate(label_list)}
-
-#     features = []
-#     for (ex_index, example) in tqdm.tqdm(enumerate(examples), desc="convert examples to features"):
-#         if ex_index % 10000 == 0:
-#             logger.info("Writing example %d of %d" % (ex_index, len(examples)))
-#         choices_inputs = []
-#         for ending_idx, (context, ending) in enumerate(zip(example.contexts, example.endings)):
-#             text_a = context
-#             if example.question.find("_") != -1:
-#                 # this is for cloze question
-#                 text_b = example.question.replace("_", ending)
-#             else:
-#                 text_b = example.question + " " + ending
-
-#             inputs = tokenizer(
-#                 text_a,
-#                 text_b,
-#                 add_special_tokens=True,
-#                 max_length=max_length,
-#                 padding="max_length",
-#                 truncation=True,
-#                 return_overflowing_tokens=True,
-#             )
-#             if "num_truncated_tokens" in inputs and inputs["num_truncated_tokens"] > 0:
-#                 logger.info(
-#                     "Attention! you are cropping tokens (swag task is ok). "
-#                     "If you are training ARC and RACE and you are poping question + options,"
-#                     "you need to try to use a bigger max seq length!"
-#                 )
-
-#             choices_inputs.append(inputs)
-
-#         label = label_map[example.label]
-
-#         input_ids = [x["input_ids"] for x in choices_inputs]
-#         attention_mask = (
-#             [x["attention_mask"] for x in choices_inputs] if "attention_mask" in choices_inputs[0] else None
-#         )
-#         token_type_ids = (
-#             [x["token_type_ids"] for x in choices_inputs] if "token_type_ids" in choices_inputs[0] else None
-#         )
-
-#         features.append(
-#             InputFeatures(
-#                 example_id=example.example_id,
-#                 input_ids=input_ids,
-#                 attention_mask=attention_mask,
-#                 token_type_ids=token_type_ids,
-#                 label=label,
-#             )
-#         )
-
-#     for f in features[:2]:
-#         logger.info("*** Example ***")
-#         logger.info("feature: %s" % f)
-
-#     return features
-
-
 processors = {
     "race": RaceProcessor,
     "swag": SwagProcessor,
@@ -680,4 +612,6 @@ processors = {
     "syn": SynonymProcessor,
     "generic": GenericProcessor
 }
+
+
 MULTIPLE_CHOICE_TASKS_NUM_LABELS = {"race", 4, "swag", 4, "arc", 4, "syn", 5, "generic", 4}

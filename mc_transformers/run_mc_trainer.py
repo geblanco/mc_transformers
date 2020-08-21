@@ -22,7 +22,7 @@ import json
 import logging
 
 
-from typing import Dict, Optional
+from typing import Dict, Optional, List, NamedTuple
 from collections import defaultdict
 from dataclasses import dataclass, field
 
@@ -41,6 +41,7 @@ from transformers import (
 from transformers import is_tf_available
 from transformers.trainer_utils import PredictionOutput
 from mc_transformers.utils_mc import MultipleChoiceDataset, Split, processors
+from mc_transformers.data_classes import InputExample
 
 
 if is_tf_available():
@@ -142,6 +143,12 @@ class WindowArguments:
     """
     Arguments pertaining to output directories for metrics, results and predictions
     """
+    enable_windowing: bool = field(
+        default=False,
+        metadata={
+            'help': 'Enable windowing system alltogether'
+        }
+    )
     stride: Optional[int] = field(
         default=None,
         metadata={
@@ -154,6 +161,14 @@ class WindowArguments:
             "help": "Text of an unanswerable question option"
         }
     )
+
+
+class WindowPrediction(NamedTuple):
+    predictions: np.ndarray
+    window_ids: List[int]
+    labels: List[int]
+    label: Optional[int]
+    example: Optional[InputExample]
 
 
 def process_ids(processor, example_ids, window_args):
@@ -179,7 +194,95 @@ def process_ids(processor, example_ids, window_args):
     return example_ids
 
 
-def save_metrics(metrics, dir_args, prefix="eval"):
+def vote_windowed_predictions(windowed_predictions):
+    predictions = []
+    # strategies:
+    #   max along each column
+    #   voting?
+    for win_pred in windowed_predictions:
+        predictions.append(np.argmax(win_pred.predictions, axis=0))
+
+    return np.array(predictions)
+
+
+def parse_windowed_predictions(processor, args, results, split):
+    data_args = args['data_args']
+    if split == Split.dev:
+        examples = processor.get_dev_examples(data_args.data_dir)
+    elif split == Split.test:
+        examples = processor.get_test_examples(data_args.data_dir)
+    else:
+        raise ValueError('Saving training data is cheating!')
+
+    predictions = []
+    id_to_example_map = {example.example_id: example for example in examples}
+    label_map = {label: i for i, label in enumerate(processor.get_labels())}
+
+    example_labels = defaultdict(list)
+    example_window_ids = defaultdict(list)
+    example_predictions = defaultdict(list)
+
+    zipped = zip(results.example_ids, results.label_ids, results.predictions)
+    for feat_id, feat_label, feat_preds in zipped:
+        str_feat_id = str(feat_id)
+        example_id = int(str_feat_id[:-2])
+        win_id = int(str_feat_id[-2:])
+        example_labels[example_id].append(int(feat_label))
+        example_window_ids[example_id].append(win_id)
+        example_predictions[example_id].append(feat_preds)
+
+    for example_id, example in id_to_example_map.items():
+        windowed_predictions = WindowPrediction(
+            predictions=np.vstack(example_predictions[example_id]),
+            window_ids=example_window_ids[example_id],
+            labels=example_labels[example_id],
+            label=label_map[example.label],
+            example=example,
+        )
+        predictions.append(windowed_predictions)
+
+    reduced_predictions = vote_windowed_predictions(predictions)
+    example_ids, label_ids = zip(*[
+        (win_pred.example.example_id, win_pred.example.label)
+        for win_pred in predictions
+    ])
+    return parse_default_predictions(
+        processor=processor,
+        example_ids=example_ids,
+        label_ids=label_ids,
+        predictions=reduced_predictions,
+    )
+
+
+def parse_default_predictions(processor, example_ids, label_ids, predictions):
+    # ToDo := Test predictions should not have true label
+    # cast to avoid json serialization issues
+    example_ids = [processor._decode_id(int(ex_id)) for ex_id in example_ids]
+    label_ids = [int(lab) for lab in label_ids]
+    label_id_map = {i: chr(ord('A') + int(label)) for i, label in enumerate(processor.get_labels())}
+
+    predictions = softmax(predictions, axis=1)
+    predictions_dict = defaultdict(list)
+
+    for (ex_id, q_id), true_label, preds in zip(example_ids, label_ids, predictions):
+        pred_dict = {
+            "probs": preds.tolist(),
+            "pred_label": label_id_map[np.argmax(preds)],
+            "label": label_id_map[true_label],
+        }
+        predictions_dict[ex_id].append(pred_dict)
+
+    full_ids = ['-'.join([c_id, qa_id]) for c_id, qa_id in example_ids]
+    predictions = np.argmax(predictions, axis=1)
+    predicted_labels = [label_id_map[id] for id in predictions]
+    predictions_list = dict(zip(full_ids, predicted_labels))
+
+    return predictions_dict, predictions_list
+
+
+def save_metrics(metrics, args, split):
+    dir_args = args['dir_args']
+    prefix = "eval" if split == Split.dev else "test"
     metrics_dict = {}
     output_metrics_file = os.path.join(
         dir_args.metrics_dir,
@@ -197,11 +300,21 @@ def save_metrics(metrics, dir_args, prefix="eval"):
             logger.info("  %s = %s", key, value)
 
 
-def save_predictions(processor, results, dir_args, window_args, prefix="eval"):
-    model_predictions = results.predictions
-    # cast to avoid json serialization issues
-    example_ids = process_ids(processor, results.example_ids, window_args)
-    label_ids = [int(lab) for lab in results.label_ids]
+def save_predictions(processor, results, args, split):
+    dir_args, window_args = args['dir_args'], args['window_args']
+    prefix = "eval" if split == Split.dev else "test"
+
+    if window_args.enable_windowing:
+        predictions_dict, predictions_list = parse_windowed_predictions(
+            processor, args, results, split,
+        )
+    else:
+        predictions_dict, predictions_list = parse_default_predictions(
+            processor=processor,
+            example_ids=results.example_ids,
+            label_ids=results.label_ids,
+            predictions=results.predictions,
+        )
 
     output_nbest_file = os.path.join(
         dir_args.results_dir,
@@ -212,38 +325,21 @@ def save_predictions(processor, results, dir_args, window_args, prefix="eval"):
         f"{prefix}_predictions.json"
     )
 
-    predictions = softmax(model_predictions, axis=1)
-    predictions_dict = defaultdict(list)
-    for ex_id, true_label, preds in zip(example_ids, label_ids, predictions):
-        pred_dict = {
-            "probs": preds.tolist(),
-            "pred_label": chr(ord('A') + np.argmax(preds)),
-            "label": chr(ord('A') + true_label),
-        }
-        # we only want the context-question id
-        if callable(getattr(processor, "_decode_id")):
-            ex_id, _ = ex_id
-        predictions_dict[ex_id].append(pred_dict)
-
     with open(output_nbest_file, "w") as writer:
         writer.write(json.dumps(predictions_dict) + '\n')
 
-    full_ids = ['-'.join(c_id, qa_id) for c_id, qa_id in example_ids]
-    predictions = np.argmax(predictions, axis=1)
-    predicted_labels = [chr(ord('A') + id) for id in predictions]
-    predictions_list = dict(zip(full_ids, predicted_labels))
     with open(output_predictions_file, "w") as writer:
         writer.write(json.dumps(predictions_list) + '\n')
 
 
-def save_results(processor, results, dir_args, window_args, prefix="eval"):
+def save_results(processor, results, args, split):
     # only predict method returns prediction outputs,
     # evaluate and train only return the metrics
     if isinstance(results, PredictionOutput):
-        save_metrics(results.metrics, dir_args, prefix)
-        save_predictions(processor, results, dir_args, window_args, prefix)
+        save_metrics(results.metrics, args, split)
+        save_predictions(processor, results, args, split)
     else:
-        save_metrics(results, dir_args, prefix)
+        save_metrics(results, args, split)
 
 
 def main():
@@ -273,6 +369,13 @@ def main():
             f"Output directory ({training_args.output_dir}) already exists and is not empty. Use --overwrite_output_dir to overcome."
         )
 
+    all_args = {
+        'model_args': model_args,
+        'data_args': data_args,
+        'dir_args': dir_args,
+        'training_args': training_args,
+        'window_args': window_args,
+    }
     # Setup logging
     logging.basicConfig(
         format="%(asctime)s - %(levelname)s - %(name)s -   %(message)s",
@@ -331,6 +434,7 @@ def main():
             max_seq_length=data_args.max_seq_length,
             overwrite_cache=data_args.overwrite_cache,
             mode=Split.train,
+            enable_windowing=window_args.enable_windowing,
             stride=window_args.stride,
             no_answer_text=window_args.no_answer_text,
         )
@@ -345,6 +449,7 @@ def main():
             max_seq_length=data_args.max_seq_length,
             overwrite_cache=data_args.overwrite_cache,
             mode=Split.dev,
+            enable_windowing=window_args.enable_windowing,
             stride=window_args.stride,
             no_answer_text=window_args.no_answer_text,
         )
@@ -360,6 +465,7 @@ def main():
             max_seq_length=data_args.max_seq_length,
             overwrite_cache=data_args.overwrite_cache,
             mode=Split.test,
+            enable_windowing=window_args.enable_windowing,
             stride=window_args.stride,
             no_answer_text=window_args.no_answer_text,
         )
@@ -401,7 +507,7 @@ def main():
         result = trainer.predict(eval_dataset)
         if trainer.is_world_master():
             save_results(
-                processor, result, dir_args, window_args, prefix="eval"
+                processor, result, all_args, split=Split.dev
             )
             results['eval'] = result
 
@@ -410,7 +516,7 @@ def main():
         result = trainer.predict(test_dataset)
         if trainer.is_world_master():
             save_results(
-                processor, result, dir_args, window_args, prefix="test"
+                processor, result, all_args, split=Split.test
             )
             results['test'] = result
 

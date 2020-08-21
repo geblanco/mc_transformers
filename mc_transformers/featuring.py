@@ -93,17 +93,21 @@ def should_correct_label(
 
 
 def should_window(
-    example: InputExample, tokenizer: PreTrainedTokenizer, max_length: int
+    example: InputExample,
+    tokenizer: PreTrainedTokenizer,
+    max_length: int,
+    no_answer_text: str,
 ) -> bool:
-    # three special tokens will be added, remove them from the count
-    max_length -= 3
     context = example.contexts[0]
     context_tokens = tokenizer.encode(context, add_special_tokens=False)
-    concats = concat_question_and_endings(example.question, example.endings)
+    concats = concat_question_and_endings(
+        example.question, example.endings + [no_answer_text]
+    )
     longest_concat = concats[argmax(concats)]
     # get the longest span to test max length
     text_b_tokens = tokenizer.encode(longest_concat, add_special_tokens=False)
-    return len(context_tokens) + len(text_b_tokens) > max_length
+    enable_windowing = len(context_tokens) + len(text_b_tokens) > max_length
+    return enable_windowing, len(text_b_tokens)
 
 
 def correct_label(
@@ -144,8 +148,6 @@ def create_windows(
     context_tokens = tokenizer.encode(context, add_special_tokens=False)
     windows = []
     win_start = 0
-    # three special tokens will be added, remove them from the count
-    max_length -= 3
     win_end = max_length
     total_size = len(context_tokens)
     nof_windows = round(total_size / (max_length - stride))
@@ -155,7 +157,11 @@ def create_windows(
         win_end = min(win_start + max_length, total_size)
 
     return [
-        tokenizer.decode(tokens, skip_special_tokens=True)
+        tokenizer.decode(
+            tokens,
+            skip_special_tokens=True,
+            clean_up_tokenization_spaces=True
+        )
         for tokens in windows
     ]
 
@@ -196,7 +202,8 @@ def create_input_features(
             logger.info(
                 "Attention! you are cropping tokens (swag task is ok). "
                 "If you are training ARC and RACE and you are poping question + options,"
-                "you need to try to use a bigger max seq length!"
+                "you need to try to use a bigger max seq length! "
+                f"Cropped {inputs['num_truncated_tokens']} tokens"
             )
 
         choices_inputs.append(inputs)
@@ -220,6 +227,7 @@ def create_input_features(
 def windowed_tokenization(
     example: InputExample,
     label_map: dict,
+    max_window_length: int,
     max_length: int,
     stride: int,
     no_answer_text: str,
@@ -234,16 +242,23 @@ def windowed_tokenization(
     # ToDo := no_answer_text is not used by now, no label corrected
     window_fn = window_fn if window_fn is not None else create_windows
     window_texts = window_fn(
-        example.contexts[0], tokenizer, max_length, stride
+        example.contexts[0], tokenizer, max_window_length, stride
     )
-    logger.info(f"Created {len(window_texts)} windows for `{example.example_id}` example")
+    logger.info(
+        f"Created {len(window_texts)} windows for example "
+        f"`{example.example_id}` with max window size {max_window_length}"
+    )
     features = []
-    for win_idx, window_text in enumerate(window_texts):
+    for win_idx, win_text in enumerate(window_texts):
+        str_win_idx = str(win_idx)
+        if len(str_win_idx) % 2 != 0:
+            str_win_idx = '0' + str_win_idx
+
         if should_correct_label(
-            window_text, example.endings, no_answer_text, text_tokenizer
+            win_text, example.endings, no_answer_text, text_tokenizer
         ):
             label, endings = correct_label(
-                window_text,
+                win_text,
                 example.endings.copy(),
                 no_answer_text,
                 text_tokenizer
@@ -252,10 +267,10 @@ def windowed_tokenization(
             label = label_map[example.label]
             endings = example.endings
 
-        # maximum 100 windows
-        texts_a = [window_text] * len(endings)
+        texts_a = [win_text] * len(endings)
         texts_b = concat_question_and_endings(example.question, endings)
-        example_id = int(str(example.example_id) + str(win_idx))
+        # maximum 100 windows
+        example_id = int(str(example.example_id) + str_win_idx)
         features.append(
             create_input_features(
                 contexts=texts_a,
@@ -275,7 +290,7 @@ def convert_examples_to_features(
     label_list: List[str],
     max_length: int,
     tokenizer: PreTrainedTokenizer,
-    enable_window: bool = False,
+    enable_windowing: bool = False,
     stride: int = None,
     no_answer_text: str = None,
     window_fn: Callable = None,
@@ -283,24 +298,37 @@ def convert_examples_to_features(
     """
     Loads a data file into a list of `InputFeatures`
     """
-    if enable_window and (stride is None and no_answer_text is None):
+    if enable_windowing and (stride is None and no_answer_text is None):
         raise ValueError(
             'Windowing mechanism is activated, but no "stride" or '
             '"no answer text" was provided, please provide them or disable'
-            'the mechanism with `enable_window=False`'
+            'the mechanism with `enable_windowing=False`'
         )
 
     features = []
     label_map = {label: i for i, label in enumerate(label_list)}
     text_tokenizer = TextTokenizer()
+    # three special tokens will be added, remove them from the count
+    windowing_max_length = max_length - 6
     for (ex_index, example) in tqdm.tqdm(enumerate(examples), desc="convert examples to features"):
         if ex_index % 10000 == 0:
             logger.info("Writing example %d of %d" % (ex_index, len(examples)))
 
-        if enable_window and should_window(example, tokenizer, max_length):
+        if enable_windowing:
+            trigger_windowing, max_ending_length = should_window(
+                example=example,
+                tokenizer=tokenizer,
+                max_length=windowing_max_length,
+                no_answer_text=no_answer_text,
+            )
+        else:
+            trigger_windowing, max_ending_length = False, None
+
+        if trigger_windowing:
             features.extend(windowed_tokenization(
                 example=example,
                 label_map=label_map,
+                max_window_length=windowing_max_length - max_ending_length,
                 max_length=max_length,
                 stride=stride,
                 no_answer_text=no_answer_text,
@@ -309,13 +337,18 @@ def convert_examples_to_features(
                 window_fn=window_fn
             ))
         else:
+            # Append 00 window idx to conform to the rest of windowed features
+            example_id = example.example_id
+            if enable_windowing:
+                example_id = int(str(example_id) + '00')
+
             concats = concat_question_and_endings(
                 example.question, example.endings
             )
             features.append(create_input_features(
                 contexts=example.contexts,
                 endings=concats,
-                example_id=example.example_id,
+                example_id=example_id,
                 label=label_map[example.label],
                 max_length=max_length,
                 tokenizer=tokenizer,
