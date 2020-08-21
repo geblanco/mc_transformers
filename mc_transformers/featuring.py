@@ -244,10 +244,10 @@ def windowed_tokenization(
     window_texts = window_fn(
         example.contexts[0], tokenizer, max_window_length, stride
     )
-    logger.info(
-        f"Created {len(window_texts)} windows for example "
-        f"`{example.example_id}` with max window size {max_window_length}"
-    )
+    # logger.info(
+    #     f"Created {len(window_texts)} windows for example "
+    #     f"`{example.example_id}` with max window size {max_window_length}"
+    # )
     features = []
     for win_idx, win_text in enumerate(window_texts):
         str_win_idx = str(win_idx)
