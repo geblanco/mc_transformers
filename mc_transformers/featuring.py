@@ -12,15 +12,18 @@ logger = logging.getLogger(__name__)
 
 try:
     import nltk
-    # download extra data
-    nltk.download(['stopwords', 'punkt', 'wordnet'])
-
     from nltk.corpus import stopwords
     from nltk.stem import SnowballStemmer, WordNetLemmatizer
     from nltk.tokenize import word_tokenize
+    # trigger download if necessary
+    stopwords.words('english')
     is_nltk_available = True
 except ImportError:
     is_nltk_available = False
+except LookupError:
+    # download extra data
+    nltk.download(['stopwords', 'punkt', 'wordnet'])
+    is_nltk_available = True
 
 
 class TextTokenizer(object):
