@@ -104,7 +104,11 @@ def should_window(
     context = example.contexts[0]
     context_tokens = tokenizer.encode(context, add_special_tokens=False)
     concats = concat_question_and_endings(
-        example.question, example.endings + [no_answer_text]
+        example.question, example.endings + (
+            [no_answer_text]
+            if no_answer_text is not None and no_answer_text != ""
+            else []
+        )
     )
     longest_concat = concats[argmax(concats)]
     # get the longest span to test max length
