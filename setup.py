@@ -32,6 +32,7 @@ setup(
     entry_points={
         'console_scripts': [
             'mc_transformers=mc_transformers.mc_transformers:main',
+            'mc_transformers_windowing=mc_transformers.window_examples:main',
         ],
     },
     extras_require={

@@ -241,7 +241,7 @@ def windowed_tokenization(
     tokenizer: PreTrainedTokenizer,
     text_tokenizer: TextTokenizer,
     window_fn: Callable = None
-) -> InputFeatures:
+) -> List[InputFeatures]:
     # ToDo := Different amount of windows will trigger an error because of
     # different size in input features? sequences should be grouped by
     # size and chopped, padded accordingly
