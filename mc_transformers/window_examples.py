@@ -1,6 +1,9 @@
+import os
 import sys
 import tqdm
+import json
 
+from pathlib import Path
 from typing import List, Callable, Optional
 from dataclasses import dataclass, field
 from transformers import PreTrainedTokenizer
@@ -57,25 +60,6 @@ class DataTrainingArguments:
     )
     overwrite_cache: bool = field(
         default=False, metadata={"help": "Overwrite the cached training and evaluation sets"}
-    )
-
-
-@dataclass
-class DirArguments:
-    """
-    Arguments pertaining to output directories for metrics, results and predictions
-    """
-    metrics_dir: Optional[str] = field(
-        default=None,
-        metadata={
-            "help": "Output directory for metrics (loss/accuracy)"
-        }
-    )
-    results_dir: Optional[str] = field(
-        default=None,
-        metadata={
-            "help": "Output directory for predictions"
-        }
     )
 
 
@@ -256,17 +240,31 @@ def process_examples(
     )
 
 
+def serialize_examples(examples: List[InputExample]):
+    return [ex.__dict__ for ex in examples]
+
+
+def save_examples(output_file: str, examples: List[InputExample]):
+    str_examples = json.dumps(
+        serialize_examples(examples),
+        ensure_ascii=False
+    ) + '\n'
+    Path(output_file).parent.mkdir(parents=True, exist_ok=True)
+    with open(output_file, 'w') as fout:
+        fout.write(str_examples)
+
+
 def main():
     parser = HfArgumentParser((
         ModelArguments, DataTrainingArguments,
-        DirArguments, TrainingArguments, WindowArguments
+        TrainingArguments, WindowArguments
     ))
     if len(sys.argv) > 1 and sys.argv[1].endswith('.json'):
-        model_args, data_args, dir_args, training_args, window_args = (
+        model_args, data_args, training_args, window_args = (
             parser.parse_json_file(sys.argv[1])
         )
     else:
-        model_args, data_args, dir_args, training_args, window_args = (
+        model_args, data_args, training_args, window_args = (
             parser.parse_args_into_dataclasses()
         )
 
@@ -276,16 +274,19 @@ def main():
     )
 
     splits = []
+    file_names = []
     if training_args.do_train:
         splits.append(Split.train)
+        file_names.append('train')
     if training_args.do_eval:
         splits.append(Split.dev)
+        file_names.append('dev')
     if training_args.do_predict:
         splits.append(Split.test)
+        file_names.append('test')
 
-    examples = {}
-    for split in splits:
-        examples[split] = process_examples(
+    for split, f_name in zip(splits, file_names):
+        examples = process_examples(
             data_dir=data_args.data_dir,
             tokenizer=tokenizer,
             task=data_args.task_name,
@@ -295,4 +296,6 @@ def main():
             stride=window_args.stride,
             no_answer_text=window_args.no_answer_text,
         )
-        print(f'Processed {len(examples[split])} for split {split}')
+        print(f'Processed {len(examples)} for split {split}')
+        file_path = os.path.join(training_args.output_dir, f_name) + '.json'
+        save_examples(file_path, examples)
