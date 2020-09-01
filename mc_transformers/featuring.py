@@ -243,6 +243,7 @@ def windowed_tokenization(
     # size and chopped, padded accordingly
 
     # ToDo := no_answer_text is not used by now, no label corrected
+    able_to_correct_label = no_answer_text is not None and no_answer_text != ""
     window_fn = window_fn if window_fn is not None else create_windows
     window_texts = window_fn(
         example.contexts[0], tokenizer, max_window_length, stride
@@ -257,7 +258,7 @@ def windowed_tokenization(
         if len(str_win_idx) % 2 != 0:
             str_win_idx = '0' + str_win_idx
 
-        if should_correct_label(
+        if able_to_correct_label and should_correct_label(
             win_text, example.endings, no_answer_text, text_tokenizer
         ):
             label, endings = correct_label(
@@ -301,11 +302,11 @@ def convert_examples_to_features(
     """
     Loads a data file into a list of `InputFeatures`
     """
-    if enable_windowing and (stride is None and no_answer_text is None):
+    if enable_windowing and stride is None:
         raise ValueError(
             'Windowing mechanism is activated, but no "stride" or '
-            '"no answer text" was provided, please provide them or disable'
-            'the mechanism with `enable_windowing=False`'
+            'was provided, please provide it or disable'
+            'the mechanism altogether with `enable_windowing=False`'
         )
 
     features = []

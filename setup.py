@@ -31,7 +31,7 @@ setup(
     description="Utils to run multiple choice question answering with huggingface transformers",
     entry_points={
         'console_scripts': [
-            'mc_transformers=mc_transformers.run_mc_trainer:main',
+            'mc_transformers=mc_transformers.mc_transformers:main',
         ],
     },
     extras_require={
