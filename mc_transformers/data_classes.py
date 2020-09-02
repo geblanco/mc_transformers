@@ -1,5 +1,7 @@
+import numpy as np
+
 from dataclasses import dataclass
-from typing import List, Optional, Union
+from typing import List, Optional, Union, NamedTuple
 
 
 @dataclass(frozen=True)
@@ -22,6 +24,15 @@ class InputExample:
     endings: List[str]
     label: Optional[str]
 
+    def todict(self):
+        return dict(
+            example_id=self.example_id,
+            question=self.question,
+            contexts=self.contexts,
+            endings=self.endings,
+            label=self.label,
+        )
+
 
 @dataclass(frozen=True)
 class InputFeatures:
@@ -35,3 +46,22 @@ class InputFeatures:
     attention_mask: Optional[List[List[int]]]
     token_type_ids: Optional[List[List[int]]]
     label: Optional[int]
+
+
+class WindowPrediction(NamedTuple):
+    predictions: np.ndarray
+    window_ids: List[int]
+    labels: List[int]
+    label: Optional[int]
+    example: Optional[InputExample]
+
+    def todict(self):
+        return dict(
+            predictions=self.predictions.tolist(),
+            window_ids=self.window_ids,
+            labels=self.labels,
+            label=self.label,
+            example=(
+                self.example.todict() if self.example is not None else None
+            )
+        )

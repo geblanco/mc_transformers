@@ -21,8 +21,8 @@ import sys
 import json
 import logging
 
-
-from typing import Dict, Optional, List, NamedTuple
+from pathlib import Path
+from typing import Dict, Optional
 from collections import defaultdict
 from dataclasses import dataclass, field
 
@@ -41,7 +41,7 @@ from transformers import (
 from transformers import is_tf_available
 from transformers.trainer_utils import PredictionOutput
 from mc_transformers.utils_mc import MultipleChoiceDataset, Split, processors
-from mc_transformers.data_classes import InputExample
+from mc_transformers.data_classes import WindowPrediction
 
 
 if is_tf_available():
@@ -162,34 +162,12 @@ class WindowArguments:
             "label correction mechanism on windowed features)"
         }
     )
-
-
-class WindowPrediction(NamedTuple):
-    predictions: np.ndarray
-    window_ids: List[int]
-    labels: List[int]
-    label: Optional[int]
-    example: Optional[InputExample]
-
-
-def process_ids(processor, example_ids, window_args):
-    example_ids = [int(id) for id in example_ids]
-    # decode id with processor
-    if callable(getattr(processor, "_decode_id")):
-        if window_args.enable_windowing:
-            # strip truncation window index
-            # ToDo: = Should join + argmax by windows
-            strip = 2
-        else:
-            strip = 0
-        # returns: context_id, question-answer_id
-        decoded_ids = []
-        for ex_id in example_ids:
-            str_ex_id = str(ex_id)
-            str_ex_id = str_ex_id[:len(str_ex_id) - strip]
-            decoded_ids.append(processor._decode_id(int(str_ex_id)))
-        example_ids = decoded_ids
-    return example_ids
+    windows_dir: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "Output directory for windowed predictions"
+        }
+    )
 
 
 def vote_windowed_predictions(windowed_predictions):
@@ -206,8 +184,10 @@ def vote_windowed_predictions(windowed_predictions):
 def parse_windowed_predictions(processor, args, results, split):
     data_args = args['data_args']
     if split == Split.dev:
+        file_name = "dev_windowed_predictions.json"
         examples = processor.get_dev_examples(data_args.data_dir)
     elif split == Split.test:
+        file_name = "test_windowed_predictions.json"
         examples = processor.get_test_examples(data_args.data_dir)
     else:
         raise ValueError('Saving training data is cheating!')
@@ -238,6 +218,13 @@ def parse_windowed_predictions(processor, args, results, split):
             example=example,
         )
         predictions.append(windowed_predictions)
+
+    if args.window_args.windows_dir is not None:
+        Path(args.window_args.windows_dir).mkdir(parents=True, exist_ok=True)
+        file_path = os.path.join(args.window_args.windows_dir, file_name)
+        window_preds_str = json.dumps([win.todict() for win in predictions])
+        with open(file_path, 'w') as fout:
+            fout.write(window_preds_str + '\n')
 
     reduced_predictions = vote_windowed_predictions(predictions)
     example_ids, label_ids = zip(*[
