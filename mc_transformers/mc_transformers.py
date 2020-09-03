@@ -183,6 +183,7 @@ def vote_windowed_predictions(windowed_predictions):
 
 def parse_windowed_predictions(processor, args, results, split):
     data_args = args['data_args']
+    window_args = args['window_args']
     if split == Split.dev:
         file_name = "dev_windowed_predictions.json"
         examples = processor.get_dev_examples(data_args.data_dir)
@@ -219,9 +220,9 @@ def parse_windowed_predictions(processor, args, results, split):
         )
         predictions.append(windowed_predictions)
 
-    if args.window_args.windows_dir is not None:
-        Path(args.window_args.windows_dir).mkdir(parents=True, exist_ok=True)
-        file_path = os.path.join(args.window_args.windows_dir, file_name)
+    if window_args.windows_dir is not None:
+        Path(window_args.windows_dir).mkdir(parents=True, exist_ok=True)
+        file_path = os.path.join(window_args.windows_dir, file_name)
         window_preds_str = json.dumps([win.todict() for win in predictions])
         with open(file_path, 'w') as fout:
             fout.write(window_preds_str + '\n')
