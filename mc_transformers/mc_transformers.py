@@ -254,11 +254,11 @@ def parse_default_predictions(args, processor, example_ids, label_ids, predictio
     label_ids = [int(lab) for lab in label_ids]
     label_id_map = {i: chr(ord('A') + int(label)) for i, label in enumerate(processor.get_labels())}
 
-    logits = predictions.tolist()
+    pred_logits = predictions.tolist()
     predictions = softmax(predictions, axis=1)
     predictions_dict = defaultdict(list)
 
-    for (ex_id, q_id), true_label, preds in zip(example_ids, label_ids, predictions):
+    for (ex_id, q_id), true_label, preds, logits in zip(example_ids, label_ids, predictions, pred_logits):
         pred_dict = {
             "probs": preds.tolist(),
             "pred_label": label_id_map[np.argmax(preds)],
