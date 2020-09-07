@@ -136,7 +136,7 @@ class DirArguments:
             "help": "Output directory for predictions"
         }
     )
-    save_logits: Optional[bool] = field(
+    save_logits: bool = field(
         default=False,
         metadata={
             "help": "Whether to store logits along with predictions"
