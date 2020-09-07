@@ -136,6 +136,12 @@ class DirArguments:
             "help": "Output directory for predictions"
         }
     )
+    save_logits: Optional[bool] = field(
+        default=False,
+        metadata={
+            "help": "Whether to store logits along with predictions"
+        }
+    )
 
 
 @dataclass
@@ -181,7 +187,7 @@ def vote_windowed_predictions(windowed_predictions):
     return np.array(predictions)
 
 
-def parse_windowed_predictions(processor, args, results, split):
+def parse_windowed_predictions(args, processor, results, split):
     data_args = args['data_args']
     window_args = args['window_args']
     if split == Split.dev:
@@ -233,6 +239,7 @@ def parse_windowed_predictions(processor, args, results, split):
         for win_pred in predictions
     ])
     return parse_default_predictions(
+        args=args,
         processor=processor,
         example_ids=example_ids,
         label_ids=label_ids,
@@ -240,13 +247,14 @@ def parse_windowed_predictions(processor, args, results, split):
     )
 
 
-def parse_default_predictions(processor, example_ids, label_ids, predictions):
+def parse_default_predictions(args, processor, example_ids, label_ids, predictions):
     # ToDo := Test predictions should not have true label
     # cast to avoid json serialization issues
     example_ids = [processor._decode_id(int(ex_id)) for ex_id in example_ids]
     label_ids = [int(lab) for lab in label_ids]
     label_id_map = {i: chr(ord('A') + int(label)) for i, label in enumerate(processor.get_labels())}
 
+    logits = predictions.tolist()
     predictions = softmax(predictions, axis=1)
     predictions_dict = defaultdict(list)
 
@@ -256,6 +264,10 @@ def parse_default_predictions(processor, example_ids, label_ids, predictions):
             "pred_label": label_id_map[np.argmax(preds)],
             "label": label_id_map[true_label],
         }
+
+        if args['dir_args'].save_logits:
+            pred_dict.update(**{"logits": logits})
+
         predictions_dict[ex_id].append(pred_dict)
 
     full_ids = ['-'.join([c_id, qa_id]) for c_id, qa_id in example_ids]
@@ -292,10 +304,14 @@ def save_predictions(processor, results, args, split):
 
     if window_args.enable_windowing:
         predictions_dict, predictions_list = parse_windowed_predictions(
-            processor, args, results, split,
+            args=args,
+            processor=processor,
+            results=results,
+            split=split,
         )
     else:
         predictions_dict, predictions_list = parse_default_predictions(
+            args=args,
             processor=processor,
             example_ids=results.example_ids,
             label_ids=results.label_ids,
