@@ -197,7 +197,8 @@ def parse_windowed_predictions(args, processor, results, split):
         file_name = "test_windowed_predictions.json"
         examples = processor.get_test_examples(data_args.data_dir)
     else:
-        raise ValueError('Saving training data is cheating!')
+        file_name = "train_windowed_predictions.json"
+        examples = processor.get_train_examples(data_args.data_dir)
 
     predictions = []
     id_to_example_map = {example.example_id: example for example in examples}
@@ -280,7 +281,12 @@ def parse_default_predictions(args, processor, example_ids, label_ids, predictio
 
 def save_metrics(metrics, args, split):
     dir_args = args['dir_args']
-    prefix = "eval" if split == Split.dev else "test"
+    prefix = "eval"
+    if split == Split.test:
+        prefix = "test"
+    elif split == Split.train:
+        prefix = "train"
+
     metrics_dict = {}
     output_metrics_file = os.path.join(
         dir_args.metrics_dir,
@@ -289,6 +295,7 @@ def save_metrics(metrics, args, split):
     for key in ["eval_loss", "eval_acc"]:
         if metrics.get(key) is not None:
             metrics_dict[key] = metrics.get(key)
+
     if len(metrics_dict.keys()) == 0:
         logger.info("Neither loss or accuracy found on result dict!")
     else:
@@ -300,7 +307,11 @@ def save_metrics(metrics, args, split):
 
 def save_predictions(processor, results, args, split):
     dir_args, window_args = args['dir_args'], args['window_args']
-    prefix = "eval" if split == Split.dev else "test"
+    prefix = "eval"
+    if split == Split.test:
+        prefix = "test"
+    elif split == Split.train:
+        prefix = "train"
 
     if window_args.enable_windowing:
         predictions_dict, predictions_list = parse_windowed_predictions(
@@ -489,6 +500,7 @@ def main():
     )
 
     # Training
+    results = {}
     if training_args.do_train:
         trainer.train(
             model_path=(
@@ -503,7 +515,14 @@ def main():
         if trainer.is_world_master():
             tokenizer.save_pretrained(training_args.output_dir)
 
-    results = {}
+        logger.info("*** Evaluate (train set)***")
+        result = trainer.predict(train_dataset)
+        if trainer.is_world_master():
+            save_results(
+                processor, result, all_args, split=Split.train
+            )
+            results['train'] = result
+
     if training_args.do_eval:
         logger.info("*** Evaluate ***")
         result = trainer.predict(eval_dataset)
