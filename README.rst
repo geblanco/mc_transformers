@@ -18,8 +18,8 @@ A big part of the code comes from `huggingface/transformers`_, so its license ma
 
 Code
 ----
+* `mc_transformers.py`: Code to train/eval/test models over any collection with transfomers
 * `utils_mc.py`: Contains processors specific to each MC QA collection (RACE, SWAG, EntranceExams...)
-* `run_mc_trainer.py`: Code to train/eval/test models over any collection with transfomers
 
 Why
 ---
