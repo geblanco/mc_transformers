@@ -85,13 +85,13 @@ if is_torch_available():
                     self.features = torch.load(cached_features_file)
                 else:
                     logger.info(f"Creating features from dataset file at {data_dir}")
-                    label_list = processor.get_labels()
                     if mode == Split.dev:
                         examples = processor.get_dev_examples(data_dir)
                     elif mode == Split.test:
                         examples = processor.get_test_examples(data_dir)
                     else:
                         examples = processor.get_train_examples(data_dir)
+                    label_list = processor.get_labels()
                     logger.info("Training examples: %s", len(examples))
 
                     self.features = convert_examples_to_features(
@@ -141,13 +141,13 @@ if is_tf_available():
             processor = processors[task]()
 
             logger.info(f"Creating features from dataset file at {data_dir}")
-            label_list = processor.get_labels()
             if mode == Split.dev:
                 examples = processor.get_dev_examples(data_dir)
             elif mode == Split.test:
                 examples = processor.get_test_examples(data_dir)
             else:
                 examples = processor.get_train_examples(data_dir)
+            label_list = processor.get_labels()
             logger.info("Training examples: %s", len(examples))
 
             self.features = convert_examples_to_features(
