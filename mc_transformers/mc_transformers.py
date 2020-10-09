@@ -374,14 +374,14 @@ def pair_predictions_with_ids(results, data_collator):
 
 def setup(argc=None):
     if argc is None:
-        argc = sys.argv
+        argc = sys.argv[1:]
     parser = HfArgumentParser((
         ModelArguments, DataTrainingArguments,
         DirArguments, TrainingArguments, WindowArguments
     ))
-    if len(argc) > 1 and argc[1].endswith('.json'):
+    if len(argc) == 1 and argc[0].endswith('.json'):
         model_args, data_args, dir_args, training_args, window_args = (
-            parser.parse_json_file(argc[1])
+            parser.parse_json_file(argc[0])
         )
     else:
         model_args, data_args, dir_args, training_args, window_args = (
