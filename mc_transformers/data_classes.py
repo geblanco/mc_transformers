@@ -133,6 +133,7 @@ class DataCollatorWithIds():
     def drop_ids(self):
         self.example_ids = None
 
+
 class PredictionOutputWithIds(NamedTuple):
     predictions: np.ndarray
     label_ids: Optional[np.ndarray]

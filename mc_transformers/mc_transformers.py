@@ -19,7 +19,6 @@
 import os
 import sys
 import json
-import torch
 import logging
 
 from pathlib import Path
@@ -62,6 +61,11 @@ os.environ.update(**{"WANDB_DISABLED": "true"})
 
 def simple_accuracy(preds, labels):
     return (preds == labels).mean()
+
+
+def compute_metrics(p: EvalPrediction) -> Dict:
+    preds = np.argmax(p.predictions, axis=1)
+    return {"acc": simple_accuracy(preds, p.label_ids)}
 
 
 def softmax(preds, axis=None):
@@ -368,17 +372,16 @@ def pair_predictions_with_ids(results, data_collator):
     )
 
 
-def main():
-    # See all possible arguments in src/transformers/training_args.py
-    # or by passing the --help flag to this script.
-    # We now keep distinct sets of args, for a cleaner separation of concerns.
+def setup(argc=None):
+    if argc is None:
+        argc = sys.argv
     parser = HfArgumentParser((
         ModelArguments, DataTrainingArguments,
         DirArguments, TrainingArguments, WindowArguments
     ))
-    if len(sys.argv) > 1 and sys.argv[1].endswith('.json'):
+    if len(argc) > 1 and argc[1].endswith('.json'):
         model_args, data_args, dir_args, training_args, window_args = (
-            parser.parse_json_file(sys.argv[1])
+            parser.parse_json_file(argc[1])
         )
     else:
         model_args, data_args, dir_args, training_args, window_args = (
@@ -451,7 +454,15 @@ def main():
         cache_dir=model_args.cache_dir,
     )
 
-    # Get datasets
+    return all_args, processor, config, tokenizer, model
+
+
+def main():
+    all_args, processor, config, tokenizer, model = setup()
+    model_args, data_args, dir_args, training_args, window_args = (
+        all_args.values()
+    )
+
     train_dataset = (
         MultipleChoiceDataset(
             data_dir=data_args.data_dir,
@@ -498,10 +509,6 @@ def main():
         if training_args.do_predict
         else None
     )
-
-    def compute_metrics(p: EvalPrediction) -> Dict:
-        preds = np.argmax(p.predictions, axis=1)
-        return {"acc": simple_accuracy(preds, p.label_ids)}
 
     data_collator = DataCollatorWithIds()
 
