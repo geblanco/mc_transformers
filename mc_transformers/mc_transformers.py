@@ -19,6 +19,7 @@
 import os
 import sys
 import json
+import torch
 import logging
 
 from pathlib import Path
@@ -39,9 +40,12 @@ from transformers import (
     set_seed,
 )
 from transformers import is_tf_available
-from transformers.trainer_utils import PredictionOutput
 from mc_transformers.utils_mc import MultipleChoiceDataset, Split, processors
-from mc_transformers.data_classes import WindowPrediction
+from mc_transformers.data_classes import (
+    WindowPrediction,
+    PredictionOutputWithIds,
+    DataCollatorWithIds,
+)
 
 
 if is_tf_available():
@@ -348,11 +352,20 @@ def save_predictions(processor, results, args, split):
 def save_results(processor, results, args, split):
     # only predict method returns prediction outputs,
     # evaluate and train only return the metrics
-    if isinstance(results, PredictionOutput):
+    if isinstance(results, PredictionOutputWithIds):
         save_metrics(results.metrics, args, split)
         save_predictions(processor, results, args, split)
     else:
         save_metrics(results, args, split)
+
+
+def pair_predictions_with_ids(results, data_collator):
+    return PredictionOutputWithIds(
+        predictions=results.predictions,
+        label_ids=results.label_ids,
+        example_ids=data_collator.example_ids,
+        metrics=results.metrics,
+    )
 
 
 def main():
@@ -490,6 +503,8 @@ def main():
         preds = np.argmax(p.predictions, axis=1)
         return {"acc": simple_accuracy(preds, p.label_ids)}
 
+    data_collator = DataCollatorWithIds()
+
     # Initialize our Trainer
     trainer = Trainer(
         model=model,
@@ -497,6 +512,7 @@ def main():
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
         compute_metrics=compute_metrics,
+        data_collator=data_collator.collate,
     )
 
     # Training
@@ -518,28 +534,34 @@ def main():
         logger.info("*** Evaluate (train set)***")
         result = trainer.predict(train_dataset)
         if trainer.is_world_master():
+            result = pair_predictions_with_ids(result, data_collator)
             save_results(
                 processor, result, all_args, split=Split.train
             )
             results['train'] = result
+            data_collator.drop_ids()
 
     if training_args.do_eval:
         logger.info("*** Evaluate ***")
         result = trainer.predict(eval_dataset)
         if trainer.is_world_master():
+            result = pair_predictions_with_ids(result, data_collator)
             save_results(
                 processor, result, all_args, split=Split.dev
             )
             results['eval'] = result
+            data_collator.drop_ids()
 
     if training_args.do_predict:
         logger.info("*** Test ***")
         result = trainer.predict(test_dataset)
         if trainer.is_world_master():
+            result = pair_predictions_with_ids(result, data_collator)
             save_results(
                 processor, result, all_args, split=Split.test
             )
             results['test'] = result
+            data_collator.drop_ids()
 
     return results
 
