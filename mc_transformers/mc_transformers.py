@@ -372,7 +372,7 @@ def pair_predictions_with_ids(results, data_collator):
     )
 
 
-def setup(argc=None):
+def setup(argc=None, **kwargs):
     if argc is None:
         argc = sys.argv[1:]
     parser = HfArgumentParser((
@@ -431,27 +431,28 @@ def setup(argc=None):
     except KeyError:
         raise ValueError("Task not found: %s" % (data_args.task_name))
 
-    # Load pretrained model and tokenizer
-    #
-    # Distributed training:
-    # The .from_pretrained methods guarantee that only one local process can concurrently
-    # download model & vocab.
+    config_kwargs = kwargs.pop('config_kwargs', {})
+    tokenizer_kwargs = kwargs.pop('tokenizer_kwargs', {})
+    model_kwargs = kwargs.pop('model_kwargs', {})
 
     config = AutoConfig.from_pretrained(
         model_args.config_name if model_args.config_name else model_args.model_name_or_path,
         num_labels=num_labels,
         finetuning_task=data_args.task_name,
         cache_dir=model_args.cache_dir,
+        **config_kwargs,
     )
     tokenizer = AutoTokenizer.from_pretrained(
         model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
         cache_dir=model_args.cache_dir,
+        **tokenizer_kwargs,
     )
     model = AutoModelForMultipleChoice.from_pretrained(
         model_args.model_name_or_path,
         from_tf=bool(".ckpt" in model_args.model_name_or_path),
         config=config,
         cache_dir=model_args.cache_dir,
+        **model_kwargs,
     )
 
     return all_args, processor, config, tokenizer, model
