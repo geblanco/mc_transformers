@@ -379,9 +379,17 @@ def setup(argc=None, **kwargs):
         ModelArguments, DataTrainingArguments,
         DirArguments, TrainingArguments, WindowArguments
     ))
-    if len(argc) == 1 and argc[0].endswith('.json'):
+    if (
+        isinstance(argc, list) and
+        len(argc) == 1 and
+        argc[0].endswith('.json')
+    ):
         model_args, data_args, dir_args, training_args, window_args = (
             parser.parse_json_file(argc[0])
+        )
+    elif isinstance(argc, dict):
+        model_args, data_args, dir_args, training_args, window_args = (
+            parser.parse_dict(argc)
         )
     else:
         model_args, data_args, dir_args, training_args, window_args = (
