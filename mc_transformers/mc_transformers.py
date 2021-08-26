@@ -307,6 +307,7 @@ def save_metrics(metrics, args, split):
     if len(metrics_dict.keys()) == 0:
         logger.info("Neither loss or accuracy found on result dict!")
     else:
+        Path(dir_args.metrics_dir).mkdir(parents=True, exist_ok=True)
         with open(output_metrics_file, "w") as writer:
             writer.write(json.dumps(metrics_dict) + '\n')
         for key, value in metrics_dict.items():
@@ -346,6 +347,7 @@ def save_predictions(processor, results, args, split):
         f"{prefix}_predictions.json"
     )
 
+    Path(dir_args.results_dir).mkdir(parents=True, exist_ok=True)
     with open(output_nbest_file, "w") as writer:
         writer.write(json.dumps(predictions_dict) + '\n')
 
