@@ -1,4 +1,4 @@
-transformers
+transformers==4.15.0
 torch==1.9.0
 torchvision==0.10.0
 tensorflow==2.5.0
